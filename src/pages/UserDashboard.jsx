@@ -278,12 +278,17 @@ export default function UserDashboard() {
   const totalDistributed = distributions.filter(d => d.status === 'locked').reduce((acc, d) => acc + (d.totalDistributed || 0), 0);
   const userDistShare = distributions.filter(d => d.status === 'locked').reduce((acc, d) => {
     if (currentPlan === 'Silver') return acc + (d.silverShare || 0);
-    if (currentPlan === 'Gold') return acc + (d.goldShare || 0);
-    if (currentPlan === 'Platinum') return acc + (d.platinumShare || 0);
+    if (currentPlan === 'Gold') return acc + (d.silverShare || 0) + (d.goldShare || 0);
+    if (currentPlan === 'Platinum') return acc + (d.silverShare || 0) + (d.goldShare || 0) + (d.platinumShare || 0);
     return acc;
   }, 0);
   const totalEarnings = (earnings.utilityPool || 0) + (earnings.greenImpactPool || 0) + (earnings.loyaltyPool || 0);
-  const pendingEarnings = userDistShare - totalEarnings;
+  const pendingEarnings = distributions.filter(d => d.status === 'confirmed').reduce((acc, d) => {
+    if (currentPlan === 'Silver') return acc + (d.silverShare || 0);
+    if (currentPlan === 'Gold') return acc + (d.silverShare || 0) + (d.goldShare || 0);
+    if (currentPlan === 'Platinum') return acc + (d.silverShare || 0) + (d.goldShare || 0) + (d.platinumShare || 0);
+    return acc;
+  }, 0);
   const availableBalance = totalEarnings;
 
   const planBenefits = {

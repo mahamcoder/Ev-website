@@ -150,7 +150,7 @@ export default function AdminDashboard() {
   const [showProjectForm, setShowProjectForm] = useState(false);
 
   const [waitlist, setWaitlist] = useState([]);
-  const [waitlistForm, setWaitlistForm] = useState({ name: '', email: '', phone: '', preferredPlan: 'Silver' });
+  const [waitlistForm, setWaitlistForm] = useState({ name: '', email: '', phone: '', preferredPlan: 'Silver', projectId: '' });
   const [waitlistSubmitting, setWaitlistSubmitting] = useState(false);
 
   const [activityLogs, setActivityLogs] = useState([]);
@@ -207,14 +207,26 @@ export default function AdminDashboard() {
   // ─── COMPUTED STATS ────────────────────────────────────────────────────────
   const activeProject = projectsList.find(p => p.isActive === true) || projectsList[0];
   const activeProjectId = activeProject?.id || '';
+
+  useEffect(() => {
+    if (activeProjectId && !waitlistForm.projectId) {
+      setWaitlistForm(f => ({ ...f, projectId: activeProjectId }));
+    }
+  }, [activeProjectId, waitlistForm.projectId]);
   const activeProjectMembers = activeProject?.totalMembers || 0;
   const activeProjectCollected = activeProject?.collectedAmount || 0;
   const activeProjectCapacity = activeProject?.totalCapacity || 0;
   const activeProjectPercent = activeProjectCapacity > 0 ? Math.min((activeProjectCollected / activeProjectCapacity) * 100, 100) : 0;
 
   // Show only members/payments related to the active project
-  const activeProjUsers = usersList.filter(u => u.projectId === activeProjectId || !u.projectId);
-  const activeProjPayments = paymentsList.filter(p => p.projectId === activeProjectId || !p.projectId);
+  const activeProjUsers = usersList.filter(u => {
+    const pId = u.projectId || (projectsList[0]?.id || '');
+    return pId === activeProjectId;
+  });
+  const activeProjPayments = paymentsList.filter(p => {
+    const pId = p.projectId || (projectsList[0]?.id || '');
+    return pId === activeProjectId;
+  });
 
   const totalUsers = activeProjUsers.length;
   const activeMembers = activeProjUsers.filter(u => u.membershipStatus === 'Active').length;
@@ -561,12 +573,16 @@ export default function AdminDashboard() {
     setWaitlistSubmitting(true);
     try {
       await addDoc(collection(db, 'waitlist'), {
-        ...waitlistForm,
+        name: waitlistForm.name,
+        email: waitlistForm.email,
+        phone: waitlistForm.phone || '',
+        preferredPlan: waitlistForm.preferredPlan,
+        projectId: waitlistForm.projectId || activeProjectId || '',
         createdAt: serverTimestamp(),
         status: 'Pending'
       });
       await logActivity(currentUser?.uid, userData?.name, 'Add Waitlist', `Added ${waitlistForm.email} to waitlist`);
-      setWaitlistForm({ name: '', email: '', phone: '', preferredPlan: 'Silver' });
+      setWaitlistForm({ name: '', email: '', phone: '', preferredPlan: 'Silver', projectId: activeProjectId || '' });
     } catch (err) { alert('Error: ' + err.message); }
     finally { setWaitlistSubmitting(false); }
   };
@@ -1540,14 +1556,26 @@ export default function AdminDashboard() {
                     <InputField label="Email" type="email" value={waitlistForm.email} onChange={(e) => setWaitlistForm({...waitlistForm, email: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
                     <InputField label="Phone" value={waitlistForm.phone} onChange={(e) => setWaitlistForm({...waitlistForm, phone: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
                   </div>
-                  <div>
-                    <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-2`}>Preferred Plan</label>
-                    <select value={waitlistForm.preferredPlan} onChange={(e) => setWaitlistForm({...waitlistForm, preferredPlan: e.target.value})}
-                      className={`w-full max-w-xs px-4 py-3 rounded-xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-bold text-white transition-colors`}>
-                      <option value="Silver">Silver</option>
-                      <option value="Gold">Gold</option>
-                      <option value="Platinum">Platinum</option>
-                    </select>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-2`}>Preferred Plan</label>
+                      <select value={waitlistForm.preferredPlan} onChange={(e) => setWaitlistForm({...waitlistForm, preferredPlan: e.target.value})}
+                        className={`w-full px-4 py-3 rounded-xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-bold text-[#1B4332] transition-colors`}>
+                        <option value="Silver">Silver</option>
+                        <option value="Gold">Gold</option>
+                        <option value="Platinum">Platinum</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-2`}>Target Project</label>
+                      <select value={waitlistForm.projectId} onChange={(e) => setWaitlistForm({...waitlistForm, projectId: e.target.value})}
+                        className={`w-full px-4 py-3 rounded-xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-bold text-[#1B4332] transition-colors`}>
+                        <option value="">-- Select Project --</option>
+                        {projectsList.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                   <button type="submit" disabled={waitlistSubmitting}
                     className="px-6 py-3 bg-[#74E61F] text-[#042A1d] font-sora font-bold uppercase tracking-wider rounded-xl hover:bg-white hover:text-black transition-all cursor-pointer text-xs disabled:opacity-50">
@@ -1563,6 +1591,7 @@ export default function AdminDashboard() {
                         <th className="p-4">Email</th>
                         <th className="p-4">Phone</th>
                         <th className="p-4">Preferred Plan</th>
+                        <th className="p-4">Target Project</th>
                         <th className="p-4">Status</th>
                         <th className="p-4">Date</th>
                         <th className="p-4 text-center">Actions</th>
@@ -1573,11 +1602,14 @@ export default function AdminDashboard() {
                         <tr key={entry.id} className={`${darkMode ? 'hover:bg-white/5 text-[#2D3748]' : 'hover:bg-slate-50 text-slate-600'} transition-colors`}>
                           <td className={`p-4 font-bold ${textPrimary}`}>{entry.name}</td>
                           <td className={`p-4 ${textSecondary}`}>{entry.email}</td>
-                          <td className="p-4">{entry.phone || 'â€”'}</td>
+                          <td className="p-4">{entry.phone || '—'}</td>
                           <td className="p-4">{entry.preferredPlan}</td>
+                          <td className="p-4 font-semibold text-emerald-800">
+                            {projectsList.find(p => p.id === entry.projectId)?.name || 'General / Unknown'}
+                          </td>
                           <td className="p-4">
                             <select value={entry.status || 'Pending'} onChange={(e) => handleWaitlistStatus(entry.id, e.target.value)}
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold border ${cardBorder} ${inputBg} text-white cursor-pointer`}>
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold border ${cardBorder} ${inputBg} text-[#1B4332] cursor-pointer`}>
                               <option value="Pending">Pending</option>
                               <option value="Contacted">Contacted</option>
                               <option value="Registered">Registered</option>
@@ -1596,7 +1628,7 @@ export default function AdminDashboard() {
                         </tr>
                       ))}
                       {waitlist.length === 0 && (
-                        <tr><td colSpan="7" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>Waitlist is empty.</td></tr>
+                        <tr><td colSpan="8" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>Waitlist is empty.</td></tr>
                       )}
                     </tbody>
                   </table>

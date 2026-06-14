@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calendar, Users, MapPin, CheckCircle, Mail, AlertCircle, X, Building2 } from 'lucide-react';
+import { Calendar, Users, MapPin, CheckCircle, Mail, AlertCircle, X, Building2, Phone, User } from 'lucide-react';
+import { db } from '../firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 const formatRupee = (value) => {
   return new Intl.NumberFormat('en-IN', {
@@ -24,19 +26,55 @@ const statusStyle = (status) => {
 
 export default function FutureProjects({ projects = [] }) {
   const [selectedProject, setSelectedProject] = useState(null);
+  const [nameInput, setNameInput] = useState('');
   const [emailInput, setEmailInput] = useState('');
+  const [phoneInput, setPhoneInput] = useState('');
   const [tierInput, setTierInput] = useState('Gold');
   const [submittedMessage, setSubmittedMessage] = useState(false);
 
-  const handleWaitlistSubmit = (e) => {
+  const handleWaitlistSubmit = async (e) => {
     e.preventDefault();
-    if (!emailInput) return;
-    setSubmittedMessage(true);
-    setTimeout(() => {
-      setSubmittedMessage(false);
-      setSelectedProject(null);
-      setEmailInput('');
-    }, 2500);
+    if (!emailInput || !nameInput) return;
+
+    try {
+      // 1. Add to Firestore waitlist
+      await addDoc(collection(db, 'waitlist'), {
+        name: nameInput,
+        email: emailInput,
+        phone: phoneInput || '',
+        preferredPlan: tierInput,
+        projectId: selectedProject?.id || '',
+        status: 'Pending',
+        createdAt: serverTimestamp()
+      });
+
+      // 2. Post to Web3Forms for email alert
+      const formData = new FormData();
+      formData.append("access_key", "ce02baa5-2bcd-4585-aa2f-9d0488062c93");
+      formData.append("subject", `New Waitlist Signup: ${nameInput} for ${selectedProject?.name || 'Upcoming Project'}`);
+      formData.append("name", nameInput);
+      formData.append("email", emailInput);
+      formData.append("phone", phoneInput || 'N/A');
+      formData.append("preferredPlan", tierInput);
+      formData.append("projectName", selectedProject?.name || 'Upcoming Project');
+
+      await fetch("https://api.web3forms.com/submit", {
+        method: "POST",
+        body: formData
+      });
+
+      setSubmittedMessage(true);
+      setTimeout(() => {
+        setSubmittedMessage(false);
+        setSelectedProject(null);
+        setEmailInput('');
+        setNameInput('');
+        setPhoneInput('');
+      }, 2500);
+    } catch (err) {
+      console.error("Error joining waitlist:", err);
+      alert("Failed to join waitlist. Please try again.");
+    }
   };
 
   return (
@@ -162,6 +200,23 @@ export default function FutureProjects({ projects = [] }) {
                   <form onSubmit={handleWaitlistSubmit} className="space-y-4">
                     <div>
                       <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
+                        Full Name
+                      </label>
+                      <div className="relative">
+                        <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          required
+                          value={nameInput}
+                          onChange={(e) => setNameInput(e.target.value)}
+                          placeholder="John Doe"
+                          className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 font-semibold text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
                         Email Address
                       </label>
                       <div className="relative">
@@ -172,6 +227,22 @@ export default function FutureProjects({ projects = [] }) {
                           value={emailInput}
                           onChange={(e) => setEmailInput(e.target.value)}
                           placeholder="name@company.com"
+                          className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 font-semibold text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
+                        Phone Number
+                      </label>
+                      <div className="relative">
+                        <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="tel"
+                          value={phoneInput}
+                          onChange={(e) => setPhoneInput(e.target.value)}
+                          placeholder="9876543210"
                           className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 font-semibold text-sm"
                         />
                       </div>

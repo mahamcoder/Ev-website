@@ -1,19 +1,46 @@
 import React, { useState } from 'react';
-import { Leaf, Send } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Leaf, Send, X, Mail, User, CheckCircle, MessageSquare } from 'lucide-react';
 
 
 export default function Footer({ onScrollToSection, onOpenPolicy }) {
-  const [subscribed, setSubscribed] = useState(false);
-  const [email, setEmail] = useState('');
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [contactForm, setContactForm] = useState({ name: '', email: '', message: '' });
+  const [contactStatus, setContactStatus] = useState('idle'); // 'idle' | 'submitting' | 'success' | 'error'
 
-  const handleSubscribe = (e) => {
+  const handleContactSubmit = async (e) => {
     e.preventDefault();
-    if (!email) return;
-    setSubscribed(true);
-    setTimeout(() => {
-      setSubscribed(false);
-      setEmail('');
-    }, 3000);
+    if (!contactForm.name || !contactForm.email || !contactForm.message) return;
+    setContactStatus('submitting');
+    
+    try {
+      const formData = new FormData();
+      formData.append("access_key", "ce02baa5-2bcd-4585-aa2f-9d0488062c93");
+      formData.append("subject", `New Contact Form Submission from ${contactForm.name}`);
+      formData.append("name", contactForm.name);
+      formData.append("email", contactForm.email);
+      formData.append("message", contactForm.message);
+
+      const response = await fetch("https://api.web3forms.com/submit", {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setContactStatus('success');
+        setContactForm({ name: '', email: '', message: '' });
+        setTimeout(() => {
+          setContactStatus('idle');
+          setShowContactModal(false);
+        }, 3000);
+      } else {
+        setContactStatus('error');
+      }
+    } catch (err) {
+      console.error("Error submitting contact form:", err);
+      setContactStatus('error');
+    }
   };
 
   return (
@@ -76,30 +103,21 @@ export default function Footer({ onScrollToSection, onOpenPolicy }) {
             </div>
           </div>
 
-          {/* Newsletter Box */}
+          {/* Contact Us Box */}
           <div className="md:col-span-4">
             <h5 className="text-[11px] font-bold font-sora uppercase tracking-widest text-slate-400 mb-4">
-              Join the newsletter
+              Get in Touch
             </h5>
             <p className="text-xs text-slate-300 mb-4 font-semibold">
-              Get the latest updates on infrastructure capacity thresholds and launch dates.
+              Have questions about memberships or our green infrastructure? We are here to help.
             </p>
-            <form onSubmit={handleSubscribe} className="relative flex items-center">
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter email address"
-                className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-xs md:text-sm focus:outline-none focus:border-brand-parrot transition-colors pr-12 font-medium"
-              />
-              <button
-                type="submit"
-                className="absolute right-2.5 p-2 rounded-xl bg-brand-parrot text-brand-dark hover:bg-white transition-colors cursor-pointer"
-              >
-                {subscribed ? <span className="text-[10px] font-bold">Done</span> : <Send className="w-3.5 h-3.5" />}
-              </button>
-            </form>
+            <button
+              onClick={() => setShowContactModal(true)}
+              className="w-full py-3.5 rounded-2xl bg-brand-parrot text-brand-dark hover:bg-white font-sora font-bold uppercase tracking-wider text-xs md:text-sm shadow-md transition-all duration-300 cursor-pointer flex items-center justify-center space-x-2"
+            >
+              <span>Contact Us</span>
+              <Send className="w-3.5 h-3.5" />
+            </button>
           </div>
 
         </div>
@@ -141,6 +159,128 @@ export default function Footer({ onScrollToSection, onOpenPolicy }) {
           </div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showContactModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (contactStatus !== 'submitting') setShowContactModal(false);
+              }}
+              className="absolute inset-0 bg-brand-dark/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, y: 30, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 30, opacity: 0 }}
+              className="bg-[#042A1d] rounded-[40px] border border-white/10 w-full max-w-lg p-8 md:p-10 shadow-2xl relative z-10 overflow-hidden text-white font-inter"
+            >
+              <button
+                onClick={() => setShowContactModal(false)}
+                className="absolute top-6 right-6 p-1.5 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                disabled={contactStatus === 'submitting'}
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-brand-parrot to-emerald-500" />
+
+              {contactStatus !== 'success' ? (
+                <>
+                  <h4 className="text-2xl font-extrabold font-sora text-white tracking-tight mb-2 flex items-center gap-2">
+                    <MessageSquare className="w-6 h-6 text-brand-parrot" /> Contact Us
+                  </h4>
+                  <p className="text-xs md:text-sm text-slate-300 font-semibold mb-6">
+                    Fill out the form below to get in touch with our team. We usually reply within 24 hours.
+                  </p>
+
+                  <form onSubmit={handleContactSubmit} className="space-y-4">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
+                        Full Name
+                      </label>
+                      <div className="relative">
+                        <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          required
+                          name="name"
+                          value={contactForm.name}
+                          onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
+                          placeholder="John Doe"
+                          className="w-full bg-white/5 border border-white/10 rounded-2xl pl-11 pr-4 py-3 text-white focus:outline-none focus:border-brand-parrot focus:ring-2 focus:ring-brand-parrot/10 font-semibold text-sm transition-colors"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
+                        Email Address
+                      </label>
+                      <div className="relative">
+                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="email"
+                          required
+                          name="email"
+                          value={contactForm.email}
+                          onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
+                          placeholder="name@company.com"
+                          className="w-full bg-white/5 border border-white/10 rounded-2xl pl-11 pr-4 py-3 text-white focus:outline-none focus:border-brand-parrot focus:ring-2 focus:ring-brand-parrot/10 font-semibold text-sm transition-colors"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
+                        Message
+                      </label>
+                      <textarea
+                        required
+                        name="message"
+                        value={contactForm.message}
+                        onChange={(e) => setContactForm({ ...contactForm, message: e.target.value })}
+                        placeholder="Write your message here..."
+                        rows={4}
+                        className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white focus:outline-none focus:border-brand-parrot focus:ring-2 focus:ring-brand-parrot/10 font-semibold text-sm transition-colors resize-none"
+                      />
+                    </div>
+
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      type="submit"
+                      disabled={contactStatus === 'submitting'}
+                      className="w-full py-3.5 rounded-2xl bg-brand-parrot text-brand-dark hover:bg-white font-sora font-bold uppercase tracking-wider text-xs md:text-sm shadow-md transition-colors duration-300 mt-2 cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {contactStatus === 'submitting' ? 'Sending...' : 'Send Message'}
+                    </motion.button>
+
+                    {contactStatus === 'error' && (
+                      <p className="text-red-400 text-xs font-semibold text-center mt-2">
+                        Failed to send message. Please try again.
+                      </p>
+                    )}
+                  </form>
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <CheckCircle className="w-16 h-16 text-brand-parrot mb-4" />
+                  <h4 className="text-2xl font-extrabold font-sora text-white tracking-tight mb-2">
+                    Message Sent!
+                  </h4>
+                  <p className="text-slate-300 font-semibold text-sm max-w-xs">
+                    Thank you, {contactForm.name}! Your message has been sent successfully. We will get back to you soon.
+                  </p>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </footer>
   );
 }
