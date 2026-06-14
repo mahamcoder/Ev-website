@@ -6,7 +6,7 @@ import { Leaf, Send, X, Mail, User, CheckCircle, MessageSquare } from 'lucide-re
 export default function Footer({ onScrollToSection, onOpenPolicy }) {
   const [showContactModal, setShowContactModal] = useState(false);
   const [contactForm, setContactForm] = useState({ name: '', email: '', message: '' });
-  const [contactStatus, setContactStatus] = useState('idle'); // 'idle' | 'submitting' | 'success' | 'error'
+  const [contactStatus, setContactStatus] = useState('idle');
 
   const handleContactSubmit = async (e) => {
     e.preventDefault();
@@ -14,16 +14,19 @@ export default function Footer({ onScrollToSection, onOpenPolicy }) {
     setContactStatus('submitting');
     
     try {
-      const formData = new FormData();
-      formData.append("access_key", "ce02baa5-2bcd-4585-aa2f-9d0488062c93");
-      formData.append("subject", `New Contact Form Submission from ${contactForm.name}`);
-      formData.append("name", contactForm.name);
-      formData.append("email", contactForm.email);
-      formData.append("message", contactForm.message);
-
       const response = await fetch("https://api.web3forms.com/submit", {
         method: "POST",
-        body: formData
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify({
+          access_key: "ce02baa5-2bcd-4585-aa2f-9d0488062c93",
+          subject: `New Contact Form Submission from ${contactForm.name}`,
+          name: contactForm.name,
+          email: contactForm.email,
+          message: contactForm.message,
+        })
       });
 
       const data = await response.json();
@@ -45,13 +48,11 @@ export default function Footer({ onScrollToSection, onOpenPolicy }) {
 
   return (
     <footer className="bg-brand-dark text-white rounded-t-[50px] pt-16 pb-8 px-4 md:px-8 relative overflow-hidden">
-      {/* Glow highlight */}
       <div className="absolute top-0 left-1/3 -translate-x-1/2 -translate-y-1/2 w-80 h-80 rounded-full bg-brand-parrot/15 blur-3xl pointer-events-none" />
 
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-8 mb-16">
           
-          {/* Logo & Pitch */}
           <div className="md:col-span-4 flex flex-col items-start">
             <div className="flex items-center space-x-2 mb-4 cursor-pointer" onClick={() => onScrollToSection('hero')}>
               <img
@@ -65,7 +66,6 @@ export default function Footer({ onScrollToSection, onOpenPolicy }) {
             </p>
           </div>
 
-          {/* Links columns */}
           <div className="md:col-span-4 grid grid-cols-2 gap-4">
             <div>
               <h5 className="text-[11px] font-bold font-sora uppercase tracking-widest text-slate-400 mb-4">
@@ -114,7 +114,6 @@ export default function Footer({ onScrollToSection, onOpenPolicy }) {
             </div>
           </div>
 
-          {/* Contact Us Box */}
           <div className="md:col-span-4">
             <h5 className="text-[11px] font-bold font-sora uppercase tracking-widest text-slate-400 mb-4">
               Get in Touch
@@ -133,17 +132,14 @@ export default function Footer({ onScrollToSection, onOpenPolicy }) {
 
         </div>
 
-        {/* Divider */}
         <div className="h-px bg-white/10 w-full mb-8" />
 
-        {/* Giant footer logo brand */}
         <div className="py-6 select-none pointer-events-none text-center">
           <h2 className="text-[12vw] font-black font-sora text-white/5 tracking-tighter uppercase leading-none">
             Stoshi Energy
           </h2>
         </div>
 
-        {/* Bottom copyright details */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-semibold text-slate-400">
           <span>
             © {new Date().getFullYear()} Stoshi Green Energy. All Rights Reserved.
