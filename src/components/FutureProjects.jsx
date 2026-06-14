@@ -94,70 +94,76 @@ export default function FutureProjects({ projects = [] }) {
           <p className="text-slate-400 font-semibold text-sm">No upcoming projects at this time.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10 max-w-7xl mx-auto px-4">
           {projects.slice(0, 6).map((project, index) => (
             <motion.div
               key={project.id || index}
-              initial={{ opacity: 0, scale: 0.95 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-              className="bg-white border border-brand-green/10 rounded-[32px] p-6 hover:shadow-lg transition-all duration-300 flex flex-col justify-between group relative"
+              initial={{ opacity: 0, y: 40 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-50px" }}
+              transition={{ duration: 0.6, delay: index * 0.1 }}
+              whileHover={{ y: -12 }}
+              className="bg-white border border-[#B7E4C7] rounded-[40px] p-8 hover:shadow-[0_20px_40px_rgba(27,67,50,0.12)] transition-all duration-500 flex flex-col justify-between group relative overflow-hidden"
             >
-              <div>
-                <div className="flex items-center justify-between mb-4">
+              {/* Background accent */}
+              <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-bl from-[#D8F3DC] to-transparent rounded-bl-full opacity-60 -mr-10 -mt-10 group-hover:scale-125 transition-transform duration-700 pointer-events-none" />
+
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-8">
                   {project.status ? (
-                    <span className={`text-[10px] font-bold font-sora uppercase tracking-wider px-3 py-1 rounded-full border ${statusStyle(project.status)}`}>
+                    <span className={`text-[10px] font-extrabold font-sora uppercase tracking-widest px-4 py-1.5 rounded-full border shadow-sm ${statusStyle(project.status)}`}>
                       {project.status}
                     </span>
                   ) : <span />}
+                  <div className="w-12 h-12 rounded-full bg-[#F7FBF9] flex items-center justify-center border border-[#B7E4C7] shadow-sm group-hover:bg-[#74E61F] transition-colors duration-300">
+                    <Building2 className="w-5 h-5 text-[#1B4332]" />
+                  </div>
                 </div>
 
                 {project.name && (
-                  <h4 className="text-xl font-bold font-sora text-brand-dark mb-1 group-hover:text-brand-green transition-colors">
+                  <h4 className="text-2xl font-black font-sora text-[#1B4332] mb-3 group-hover:text-[#40916C] transition-colors leading-tight">
                     {project.name}
                   </h4>
                 )}
 
                 {project.location && (
-                  <div className="flex items-center space-x-1 text-xs font-semibold text-brand-green/80 mb-4">
-                    <MapPin className="w-3.5 h-3.5" />
+                  <div className="flex items-center space-x-2 text-sm font-bold text-[#40916C] mb-8">
+                    <MapPin className="w-4 h-4" />
                     <span>{project.location}</span>
                   </div>
                 )}
 
-                {project.totalCapacity > 0 && (
-                  <div className="mb-5">
-                    <div className="flex justify-between items-center text-xs font-bold text-slate-500 mb-1.5">
-                      <span>Capacity Tracker</span>
-                      <span>0% filled</span>
-                    </div>
-                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-slate-300 w-0" />
-                    </div>
-                    <div className="text-[11px] font-semibold text-slate-400 mt-1">
-                      Target Capacity: <span className="font-bold text-brand-dark">{formatRupee(project.totalCapacity)}</span>
-                    </div>
+                <div className="flex gap-4 mb-8">
+                  <div className="flex-1 bg-[#F7FBF9] rounded-2xl p-4 border border-[#B7E4C7] text-center group-hover:border-[#74E61F]/30 group-hover:bg-white transition-colors duration-300 shadow-inner group-hover:shadow-md">
+                     <span className="block text-[10px] uppercase font-bold text-[#40916C] mb-1 tracking-wider">Site Status</span>
+                     <span className="block text-sm font-black text-[#1B4332]">Evaluating</span>
                   </div>
-                )}
+                  <div className="flex-1 bg-[#F7FBF9] rounded-2xl p-4 border border-[#B7E4C7] text-center group-hover:border-[#74E61F]/30 group-hover:bg-white transition-colors duration-300 shadow-inner group-hover:shadow-md">
+                     <span className="block text-[10px] uppercase font-bold text-[#40916C] mb-1 tracking-wider">Launch ETA</span>
+                     <span className="block text-sm font-black text-[#1B4332]">TBA</span>
+                  </div>
+                </div>
 
                 {project.description && (
-                  <p className="text-xs md:text-sm text-slate-500 leading-relaxed font-medium mb-4">
+                  <p className="text-sm text-slate-600 leading-relaxed font-semibold mb-8 line-clamp-3">
                     {project.description}
                   </p>
                 )}
               </div>
 
-              {project.name && (
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => setSelectedProject(project)}
-                  className="mt-6 w-full py-3 rounded-2xl bg-brand-light text-brand-dark hover:bg-brand-dark hover:text-white border border-brand-green/10 text-xs md:text-sm font-sora font-bold uppercase tracking-wider transition-all duration-300 cursor-pointer"
-                >
-                  Join Waitlist
-                </motion.button>
-              )}
+              <div className="relative z-10 mt-auto">
+                {project.name && (
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => setSelectedProject(project)}
+                    className="w-full py-4 rounded-2xl bg-[#1B4332] text-white hover:bg-[#74E61F] hover:text-[#042A1d] text-sm font-sora font-extrabold uppercase tracking-wider transition-all duration-300 shadow-[0_8px_20px_rgba(27,67,50,0.2)] cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <span>Join Priority List</span>
+                    <Calendar className="w-4 h-4" />
+                  </motion.button>
+                )}
+              </div>
             </motion.div>
           ))}
         </div>

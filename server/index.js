@@ -55,7 +55,7 @@ app.post('/api/create-order', async (req, res) => {
 // Endpoint to verify payment signature
 app.post('/api/verify-payment', async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, amount } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, amount, projectId } = req.body;
 
     // The signature verification logic
     const body = razorpay_order_id + '|' + razorpay_payment_id;
@@ -69,20 +69,14 @@ app.post('/api/verify-payment', async (req, res) => {
       console.log('✅ Transaction Successful! Signature matched for Payment ID:', razorpay_payment_id);
 
       try {
-        // Query the ACTIVE project (where isActive === true)
-        const projectsRef = collection(db, 'projects');
-        const activeProjQ = query(projectsRef, where('isActive', '==', true), limit(1));
-        const activeProjectsSnapshot = await getDocs(activeProjQ);
-        
         let activeProjectRef;
-        let activeProjectId = '';
+        let activeProjectId = projectId || '';
         
-        if (!activeProjectsSnapshot.empty) {
-          const docSnap = activeProjectsSnapshot.docs[0];
-          activeProjectId = docSnap.id;
+        if (activeProjectId) {
           activeProjectRef = doc(db, 'projects', activeProjectId);
         } else {
-          // Fallback: use the first project if no active project is set
+          // Fallback: use the first project if no active project is passed
+          const projectsRef = collection(db, 'projects');
           const allProjQ = query(projectsRef, limit(1));
           const allProjectsSnapshot = await getDocs(allProjQ);
           if (!allProjectsSnapshot.empty) {

@@ -29,20 +29,27 @@ export default function Payment() {
 
   const [activeProject, setActiveProject] = useState(null);
 
+  const urlProjectId = searchParams.get('projectId');
+  const planParam = searchParams.get('plan');
+  const selectedPlan = planParam || userData?.membershipType || 'Gold';
+
   useEffect(() => {
     const unsub = onSnapshot(
       query(collection(db, 'projects')),
       (snapshot) => {
         const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        const active = list.find(p => p.isActive === true) || list[0] || null;
+        let active = null;
+        if (urlProjectId) {
+          active = list.find(p => p.id === urlProjectId);
+        }
+        if (!active) {
+          active = list.find(p => p.isActive === true) || list[0] || null;
+        }
         setActiveProject(active);
       }
     );
     return () => unsub();
-  }, []);
-
-  const planParam = searchParams.get('plan');
-  const selectedPlan = planParam || userData?.membershipType || 'Gold';
+  }, [urlProjectId]);
 
   const projectPricing = {
     Silver: activeProject?.silverPrice || 7500,
@@ -147,7 +154,8 @@ export default function Payment() {
                 razorpay_signature: response.razorpay_signature,
                 userId: currentUser ? currentUser.uid : `guest_${Date.now()}`,
                 plan: selectedPlan,
-                amount: price
+                amount: price,
+                projectId: activeProject?.id
               })
             });
 
@@ -208,23 +216,23 @@ export default function Payment() {
       const mockPaymentId = 'pay_simulated_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
 
       // Find and update active project
-      let activeProjId = '';
-      const q = await import('firebase/firestore').then(m => m.getDocs(m.query(cl(db, 'projects'), m.where('isActive', '==', true))));
-      if (!q.empty) {
-        activeProjId = q.docs[0].id;
+      let activeProjId = activeProject?.id;
+      
+      if (!activeProjId) {
+        const q = await import('firebase/firestore').then(m => m.getDocs(m.query(cl(db, 'projects'), m.where('isActive', '==', true))));
+        if (!q.empty) {
+          activeProjId = q.docs[0].id;
+        } else {
+          const allQ = await import('firebase/firestore').then(m => m.getDocs(cl(db, 'projects')));
+          if (!allQ.empty) activeProjId = allQ.docs[0].id;
+        }
+      }
+
+      if (activeProjId) {
         await sd(fd(db, 'projects', activeProjId), {
           collectedAmount: inc(price),
           totalMembers: inc(1)
         }, { merge: true });
-      } else {
-        const allQ = await import('firebase/firestore').then(m => m.getDocs(cl(db, 'projects')));
-        if (!allQ.empty) {
-          activeProjId = allQ.docs[0].id;
-          await sd(fd(db, 'projects', activeProjId), {
-            collectedAmount: inc(price),
-            totalMembers: inc(1)
-          }, { merge: true });
-        }
       }
 
       // Record payment in Firestore

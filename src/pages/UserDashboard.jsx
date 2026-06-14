@@ -36,14 +36,14 @@ function PoolCard({ title, amount, icon, color, locked }) {
   return (
     <div className={`p-5 bg-[#F7FBF9] rounded-2xl border border-[#B7E4C7] relative overflow-hidden ${locked ? 'opacity-50' : ''}`}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{title}</span>
+        <span className="text-[10px] font-bold text-black uppercase tracking-wider">{title}</span>
         <div className={`w-8 h-8 rounded-xl ${color.split(' ')[0]} flex items-center justify-center ${color.split(' ')[1]} border ${color.split(' ')[2]}`}>{icon}</div>
       </div>
       <span className={`text-xl font-black font-sora ${color.split(' ')[1]}`}>{formatRupee(amount || 0)}</span>
       {locked && (
         <div className="absolute inset-0 bg-white flex flex-col items-center justify-center backdrop-blur-sm z-10 text-center rounded-2xl">
-          <Lock className="w-5 h-5 text-slate-400 mb-1" />
-          <span className="text-[10px] font-bold text-white uppercase">Upgrade to unlock</span>
+          <Lock className="w-5 h-5 text-black mb-1" />
+          <span className="text-[10px] font-bold text-black uppercase">Upgrade to unlock</span>
         </div>
       )}
     </div>
@@ -54,15 +54,15 @@ function RewardCard({ title, amount, icon, color, locked }) {
   return (
     <div className={`p-5 bg-[#F7FBF9] rounded-2xl border border-[#B7E4C7] relative overflow-hidden ${locked ? 'opacity-50' : ''}`}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{title}</span>
+        <span className="text-[10px] font-bold text-black uppercase tracking-wider">{title}</span>
         <div className={`w-8 h-8 rounded-xl ${color.split(' ')[0]} flex items-center justify-center ${color.split(' ')[1]} border ${color.split(' ')[2]}`}>{icon}</div>
       </div>
       <span className={`text-xl font-black font-sora ${color.split(' ')[1]}`}>{formatRupee(amount || 0)}</span>
-      <p className="text-[9px] text-slate-500 mt-1 font-semibold">Reward Accrued</p>
+      <p className="text-[9px] text-black mt-1 font-semibold">Reward Accrued</p>
       {locked && (
         <div className="absolute inset-0 bg-white flex flex-col items-center justify-center backdrop-blur-sm z-10 text-center rounded-2xl">
-          <Lock className="w-5 h-5 text-slate-400 mb-1" />
-          <span className="text-[10px] font-bold text-white uppercase">Upgrade to unlock</span>
+          <Lock className="w-5 h-5 text-black mb-1" />
+          <span className="text-[10px] font-bold text-black uppercase">Upgrade to unlock</span>
         </div>
       )}
     </div>
@@ -74,7 +74,7 @@ function NotificationItem({ icon, title, desc, time, color }) {
     <div className="p-4 bg-[#F7FBF9] rounded-2xl border border-[#B7E4C7] flex items-start space-x-3">
       <div className={`w-8 h-8 rounded-full ${color} flex items-center justify-center shrink-0 border border-[#74E61F]/15`}>{icon}</div>
       <div className="flex-1 min-w-0">
-        <h4 className="text-xs font-bold text-white uppercase tracking-wider">{title}</h4>
+        <h4 className="text-xs font-bold text-black uppercase tracking-wider">{title}</h4>
         <p className="text-[11px] text-[#2D3748] font-medium mt-1 leading-relaxed">{desc}</p>
         <span className="text-[9px] text-slate-500 mt-1.5 block">{time}</span>
       </div>
@@ -335,12 +335,12 @@ export default function UserDashboard() {
     { id: 'settings', name: 'Settings', icon: Settings }
   ];
 
-  const bg = 'bg-[#F7FBF9]';
-  const cardBg = 'bg-white';
-  const cardBorder = 'border-[#B7E4C7]';
-  const textPrimary = 'text-[#1B4332]';
-  const textSecondary = 'text-[#40916C]';
-  const inputBg = 'bg-[#F7FBF9]';
+ const bg = 'bg-[#F7FBF9]';
+const cardBg = 'bg-white';
+const cardBorder = 'border-[#B7E4C7]';
+const textPrimary = 'text-black';
+const textSecondary = 'text-black';
+const inputBg = 'bg-[#F7FBF9]';
   // Light mode is always on â€” darkMode kept as false so existing ternaries resolve correctly
   const darkMode = false;
 
@@ -367,7 +367,7 @@ export default function UserDashboard() {
 
           <div className="flex items-center space-x-3 p-4 bg-white rounded-2xl border border-[#B7E4C7]" style={{ boxShadow: '0 2px 8px rgba(27,67,50,0.06)' }}>
             <div className="relative">
-              <div className="w-10 h-10 rounded-full bg-[#40916C] text-white flex items-center justify-center font-bold text-sm font-sora shadow-inner">
+              <div className="w-10 h-10 rounded-full bg-[#40916C] text-black flex items-center justify-center font-bold text-sm font-sora shadow-inner">
                 {userData?.name ? userData.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'U'}
               </div>
               <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full" />
@@ -420,7 +420,7 @@ export default function UserDashboard() {
                       <Check className="w-5 h-5 text-emerald-400 ml-2 border border-emerald-400/20 rounded-full bg-emerald-500/10 p-0.5 shrink-0" />
                     </h2>
                     <p className={`text-xs font-semibold mt-1 ${textSecondary}`}>
-                      Member ID: {memberId} â€¢ Joined {joinDate ? joinDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}
+                      Member ID: {memberId}  Joined {joinDate ? joinDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}
                     </p>
                   </div>
                   <div className="mt-4 md:mt-0 px-4 py-3 bg-[#F7FBF9] rounded-2xl border border-[#B7E4C7] flex items-center space-x-3">
@@ -513,21 +513,21 @@ export default function UserDashboard() {
 
                   {/* Pool Cards */}
                   <div className="mb-6">
-                    <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider mb-3`}>Pool Earnings</h4>
+                    <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider mb-3`}>Total Company Pools</h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <PoolCard title="Utility Pool" amount={earnings.utilityPool || 0} icon={<Leaf className="w-4 h-4" />} color="bg-[#74E61F]/10 text-[#74E61F] border-[#74E61F]/10" locked={false} />
-                      <PoolCard title="Green Impact Pool" amount={earnings.greenImpactPool || 0} icon={<Shield className="w-4 h-4" />} color="bg-emerald-500/10 text-emerald-400 border-emerald-500/10" locked={isSilver} />
-                      <PoolCard title="Loyalty Pool" amount={earnings.loyaltyPool || 0} icon={<Award className="w-4 h-4" />} color="bg-cyan-500/10 text-cyan-400 border-cyan-500/10" locked={isSilver || isGold} />
+                      <PoolCard title="Total Utility Pool" amount={projectData?.totalUtilityPool || 0} icon={<Leaf className="w-4 h-4" />} color="bg-[#74E61F]/10 text-[#74E61F] border-[#74E61F]/10" locked={false} />
+                      <PoolCard title="Total Green Impact Pool" amount={projectData?.totalGreenImpactPool || 0} icon={<Shield className="w-4 h-4" />} color="bg-emerald-500/10 text-emerald-400 border-emerald-500/10" locked={isSilver} />
+                      <PoolCard title="Total Loyalty Pool" amount={projectData?.totalLoyaltyPool || 0} icon={<Award className="w-4 h-4" />} color="bg-cyan-500/10 text-cyan-400 border-cyan-500/10" locked={isSilver || isGold} />
                     </div>
                   </div>
 
                   {/* Reward Cards */}
                   <div className="mb-6">
-                    <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider mb-3`}>Reward Earnings</h4>
+                    <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider mb-3`}>My Earned Rewards</h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <RewardCard title="Utility Reward" amount={earnings.utilityPool || 0} icon={<Gift className="w-4 h-4" />} color="bg-[#74E61F]/10 text-[#74E61F] border-[#74E61F]/10" locked={false} />
-                      <RewardCard title="Green Impact Reward" amount={earnings.greenImpactPool || 0} icon={<Gift className="w-4 h-4" />} color="bg-emerald-500/10 text-emerald-400 border-emerald-500/10" locked={isSilver} />
-                      <RewardCard title="Loyalty Reward" amount={earnings.loyaltyPool || 0} icon={<Gift className="w-4 h-4" />} color="bg-cyan-500/10 text-cyan-400 border-cyan-500/10" locked={isSilver || isGold} />
+                      <RewardCard title="My Utility Reward" amount={earnings.utilityPool || 0} icon={<Gift className="w-4 h-4" />} color="bg-[#74E61F]/10 text-[#74E61F] border-[#74E61F]/10" locked={false} />
+                      <RewardCard title="My Green Impact Reward" amount={earnings.greenImpactPool || 0} icon={<Gift className="w-4 h-4" />} color="bg-emerald-500/10 text-emerald-400 border-emerald-500/10" locked={isSilver} />
+                      <RewardCard title="My Loyalty Reward" amount={earnings.loyaltyPool || 0} icon={<Gift className="w-4 h-4" />} color="bg-cyan-500/10 text-cyan-400 border-cyan-500/10" locked={isSilver || isGold} />
                     </div>
                   </div>
 
@@ -544,35 +544,52 @@ export default function UserDashboard() {
 
                   {/* Distribution History */}
                   <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider mb-3`}>Distribution History</h4>
-                  <div className="overflow-x-auto rounded-2xl border ${cardBorder} ${darkMode ? 'bg-[#F7FBF9]' : 'bg-white'}">
+                  <div className={`overflow-x-auto rounded-2xl border ${cardBorder} ${darkMode ? 'bg-[#F7FBF9]' : 'bg-white'}`}>
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className={`border-b ${cardBorder} text-[9px] font-extrabold uppercase ${textSecondary} tracking-wider`}>
                           <th className="p-4">Date</th>
-                          <th className="p-4">Pool</th>
-                          <th className="p-4">Package</th>
-                          <th className="p-4 text-right">Amount</th>
+                          <th className="p-4">Project</th>
+                          <th className="p-4 text-right">Utility Reward</th>
+                          <th className="p-4 text-right">Green Reward</th>
+                          <th className="p-4 text-right">Loyalty Reward</th>
+                          <th className="p-4 text-right">Total Distributed</th>
                           <th className="p-4 text-center">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y ${cardBorder} text-xs font-medium">
-                        {distributions.filter(d => d.status === 'locked').map((d) => (
-                          <tr key={d.id} className={`${darkMode ? 'hover:bg-white/5 text-[#2D3748]' : 'hover:bg-slate-50 text-slate-600'} transition-colors`}>
-                            <td className={`p-4 ${textSecondary}`}>{d.distributedAt?.toDate ? new Date(d.distributedAt.toDate()).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}</td>
-                            <td className="p-4">
-                              {currentPlan === 'Platinum' ? 'Utility + Green + Loyalty' : currentPlan === 'Gold' ? 'Utility + Green' : 'Utility'}
-                            </td>
-                            <td className="p-4 font-bold">{currentPlan}</td>
-                            <td className="p-4 text-right text-[#74E61F] font-semibold">
-                              {formatRupee(currentPlan === 'Silver' ? d.silverShare : currentPlan === 'Gold' ? d.goldShare : d.platinumShare)}
-                            </td>
-                            <td className="p-4 text-center">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Distributed</span>
-                            </td>
-                          </tr>
-                        ))}
+                        {distributions.filter(d => d.status === 'locked').map((d) => {
+                          let uShare = 0, gShare = 0, lShare = 0;
+                          if (currentPlan === 'Silver') {
+                            uShare = d.silverUtilityShare || 0;
+                          } else if (currentPlan === 'Gold') {
+                            uShare = d.goldUtilityShare || 0;
+                            gShare = d.goldGreenShare || 0;
+                          } else if (currentPlan === 'Platinum') {
+                            uShare = d.platinumUtilityShare || 0;
+                            gShare = d.platinumGreenShare || 0;
+                            lShare = d.platinumLoyaltyShare || 0;
+                          }
+                          const total = uShare + gShare + lShare;
+
+                          return (
+                            <tr key={d.id} className={`${darkMode ? 'hover:bg-[#D8F3DC] text-[#2D3748]' : 'hover:bg-slate-50 text-[#2D3748]'} transition-colors`}>
+                              <td className={`p-4 ${textSecondary}`}>
+                                {d.distributedAt?.toDate ? new Date(d.distributedAt.toDate()).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}
+                              </td>
+                              <td className="p-4 font-bold text-[#1B4332]">{d.projectId ? 'Active Project' : 'General'}</td>
+                              <td className="p-4 text-right text-[#1B4332] font-semibold">{formatRupee(uShare)}</td>
+                              <td className="p-4 text-right text-[#1B4332] font-semibold">{formatRupee(gShare)}</td>
+                              <td className="p-4 text-right text-[#1B4332] font-semibold">{formatRupee(lShare)}</td>
+                              <td className="p-4 text-right text-[#74E61F] font-bold">{formatRupee(total)}</td>
+                              <td className="p-4 text-center">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Distributed</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
                         {distributions.filter(d => d.status === 'locked').length === 0 && (
-                          <tr><td colSpan="5" className={`py-8 text-center ${textSecondary} text-xs`}>No distributions yet.</td></tr>
+                          <tr><td colSpan="7" className={`py-8 text-center ${textSecondary} text-xs`}>No distributions yet.</td></tr>
                         )}
                       </tbody>
                     </table>
@@ -648,7 +665,7 @@ export default function UserDashboard() {
                           className="transition-all duration-1000 ease-out" />
                       </svg>
                       <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className="text-4xl font-extrabold font-sora text-white">{percent}%</span>
+                        <span className="text-4xl font-extrabold font-sora text-black">{percent}%</span>
                         <span className={`text-[10px] font-bold uppercase tracking-wider mt-1 ${textSecondary}`}>Funded</span>
                       </div>
                     </div>
@@ -657,10 +674,10 @@ export default function UserDashboard() {
                     <div className={`p-5 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} rounded-2xl border ${cardBorder}`}>
                       <h4 className={`text-sm font-bold font-sora ${textPrimary} mb-3`}>{projectData.location || 'Sonbhadra, Uttar Pradesh'}</h4>
                       <div className="grid grid-cols-2 gap-4">
-                        <ProjectStat label="Project Name" value="Sonbhadra EV-1" />
+                        <ProjectStat label="Project Name" value="Sonbhadra EV-1" color="text-[#74E61F]"/>
                         <ProjectStat label="Status" value={projectData.status || 'Operational'} color="text-[#74E61F]" />
-                        <ProjectStat label="Funding Goal" value={formatRupee(target)} />
-                        <ProjectStat label="Funding Collected" value={formatRupee(collected)} />
+                        <ProjectStat label="Funding Goal" value={formatRupee(target)} color="text-[#74E61F]"/>
+                        <ProjectStat label="Funding Collected" value={formatRupee(collected)} color="text-[#74E61F]"/>
                       </div>
                     </div>
                     <div className={`p-5 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} rounded-2xl border ${cardBorder} space-y-3`}>
@@ -983,7 +1000,7 @@ function InputField({ label, type = 'text', value, onChange, inputBg, darkMode, 
     <div className="space-y-1.5">
       <label className={`text-xs font-bold uppercase tracking-wider ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{label}</label>
       <input type={type} value={value} onChange={onChange}
-        className={`w-full px-4 py-3.5 rounded-2xl ${inputBg} border ${darkMode ? 'border-[#B7E4C7]' : 'border-slate-200'} focus:border-[#74E61F] focus:outline-none text-sm font-semibold text-white transition-colors`} required={required} />
+        className={`w-full px-4 py-3.5 rounded-2xl ${inputBg} border ${darkMode ? 'border-[#B7E4C7]' : 'border-slate-200'} focus:border-[#74E61F] focus:outline-none text-sm font-semibold text-[#1B4332] transition-colors`} required={required} />
     </div>
   );
 }

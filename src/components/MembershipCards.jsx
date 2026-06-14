@@ -10,68 +10,80 @@ export default function MembershipCards({ onPledge, remainingCapacity, activePro
 
   const tiers = [
     {
+      planKey: 'Silver',
       name: 'Silver Membership',
       price: Number(silverPrice),
       badge: 'Basic',
       bgClass: 'bg-white border-slate-200 text-brand-dark',
       badgeClass: 'bg-slate-100 text-slate-600',
       priceClass: 'text-brand-dark',
+      description: activeProject?.silverDesc || 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut rhoncus purus.',
       descClass: 'text-slate-500',
       featureClass: 'text-slate-600',
       checkBg: 'bg-emerald-50 text-brand-green border-brand-green/10',
       buttonClass: 'bg-brand-dark text-white hover:bg-brand-green',
       arrowBg: 'bg-white text-brand-dark',
-      features: [
-        activeProject?.powerRating || '120 kW Power Rating',
-        activeProject?.chargingBays || '8 Charging Bays',
-        activeProject?.dailyUsers || '120+ Daily Users',
-        activeProject?.co2Saved || '48 Tonnes CO₂ Saved/yr'
-      ]
+      features: activeProject?.silverFeatures 
+        ? activeProject.silverFeatures.split(',').map(f => f.trim()) 
+        : [
+            activeProject?.powerRating || '120 kW Power Rating',
+            activeProject?.chargingBays || '8 Charging Bays',
+            activeProject?.dailyUsers || '120+ Daily Users',
+            activeProject?.co2Saved || '48 Tonnes CO₂ Saved/yr'
+          ]
     },
     {
+      planKey: 'Gold',
       name: 'Gold Membership',
       price: Number(goldPrice),
       badge: 'Advanced',
       bgClass: 'bg-[#0B3022] border-[#154634] text-white shadow-2xl shadow-brand-dark/20',
       badgeClass: 'bg-brand-parrot/20 text-brand-parrot',
       priceClass: 'text-white',
+      description: activeProject?.goldDesc || 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut rhoncus purus.',
       descClass: 'text-emerald-100/70',
       featureClass: 'text-emerald-100/90',
       checkBg: 'bg-[#154634] text-brand-parrot border-brand-parrot/10',
       buttonClass: 'bg-[#74E61F] text-[#0B3022] hover:bg-white hover:text-brand-dark',
       arrowBg: 'bg-[#0B3022] text-[#74E61F]',
       popular: true,
-      features: [
-        'Priority charging nodes access',
-        'Bi-monthly physical impact reports',
-        'Green Infrastructure Badge',
-        'Invitations to annual energy summits',
-        '2x Priority for next project cycles'
-      ]
+      features: activeProject?.goldFeatures 
+        ? activeProject.goldFeatures.split(',').map(f => f.trim()) 
+        : [
+            'Priority charging nodes access',
+            'Bi-monthly physical impact reports',
+            'Green Infrastructure Badge',
+            'Invitations to annual energy summits',
+            '2x Priority for next project cycles'
+          ]
     },
     {
+      planKey: 'Platinum',
       name: 'Platinum Membership',
       price: Number(platinumPrice),
       badge: 'Premium',
       bgClass: 'bg-white border-slate-200 text-brand-dark',
       badgeClass: 'bg-slate-100 text-slate-600',
       priceClass: 'text-brand-dark',
+      description: activeProject?.platinumDesc || 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut rhoncus purus.',
       descClass: 'text-slate-500',
       featureClass: 'text-slate-600',
       checkBg: 'bg-emerald-50 text-brand-green border-brand-green/10',
       buttonClass: 'bg-brand-dark text-white hover:bg-brand-green',
       arrowBg: 'bg-white text-brand-dark',
-      features: [
-        'VIP access to charging node inaugurations',
-        'Co-owner voting rights on future locations',
-        'Special plaque at Sonbhadra node',
-        'Lifetime waiver of standard processing fees',
-        'Guaranteed placement in future waitlists'
-      ]
+      features: activeProject?.platinumFeatures 
+        ? activeProject.platinumFeatures.split(',').map(f => f.trim()) 
+        : [
+            'VIP access to charging node inaugurations',
+            'Co-owner voting rights on future locations',
+            'Special plaque at Sonbhadra node',
+            'Lifetime waiver of standard processing fees',
+            'Guaranteed placement in future waitlists'
+          ]
     }
   ];
 
-  const handlePledgeClick = (tierName, amount) => {
+  const handlePledgeClick = (planKey, amount) => {
     if (remainingCapacity < amount) {
       alert(`Pledge of ₹${amount.toLocaleString('en-IN')} exceeds remaining project capacity of ₹${remainingCapacity.toLocaleString('en-IN')}. Try a smaller membership tier!`);
       return;
@@ -85,7 +97,7 @@ export default function MembershipCards({ onPledge, remainingCapacity, activePro
       colors: ['#042A1d', '#105D3D', '#74E61F', '#22C55E']
     });
 
-    onPledge(amount);
+    onPledge(planKey);
   };
 
   const formatRupee = (value) => {
@@ -137,7 +149,7 @@ export default function MembershipCards({ onPledge, remainingCapacity, activePro
                   {formatRupee(tier.price)}
                 </span>
                 <span className={`text-[12px] font-semibold block mt-1.5 ${tier.descClass}`}>
-                  Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut rhoncus purus.
+                  {tier.description}
                 </span>
               </div>
 
@@ -145,7 +157,7 @@ export default function MembershipCards({ onPledge, remainingCapacity, activePro
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => handlePledgeClick(tier.name, tier.price)}
+                onClick={() => handlePledgeClick(tier.planKey, tier.price)}
                 className={`w-full py-3.5 rounded-2xl text-xs md:text-sm font-sora font-bold uppercase tracking-wider transition-all duration-300 flex items-center justify-center space-x-3 mb-8 shadow-sm ${tier.buttonClass} cursor-pointer`}
               >
                 <span>Get Started</span>

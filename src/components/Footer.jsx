@@ -92,13 +92,24 @@ export default function Footer({ onScrollToSection, onOpenPolicy }) {
                 Resources
               </h5>
               <ul className="space-y-2.5">
-                {['Green Energy Planners', 'FAQ Guide', 'Waitlist Status', 'Support Hub'].map((name, i) => (
-                  <li key={i}>
-                    <a href="#" className="text-xs md:text-sm text-slate-300 hover:text-brand-parrot font-semibold transition-colors">
-                      {name}
-                    </a>
-                  </li>
-                ))}
+                {['Green Energy Planners', 'FAQ Guide', 'Waitlist Status', 'Support Hub'].map((name, i) => {
+                  const clickHandlers = [
+                    () => onScrollToSection('membership'),
+                    () => onScrollToSection('faq'),
+                    () => onScrollToSection('future'),
+                    () => setShowContactModal(true)
+                  ];
+                  return (
+                    <li key={i}>
+                      <button 
+                        onClick={clickHandlers[i]} 
+                        className="text-xs md:text-sm text-slate-300 hover:text-brand-parrot font-semibold transition-colors cursor-pointer"
+                      >
+                        {name}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           </div>

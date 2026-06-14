@@ -86,7 +86,7 @@ export default function AdminLogin() {
             Admin Portal
           </h1>
           <p className="text-[#40916C] text-xs font-semibold mt-2 tracking-wide">
-            STOSHI GREEN ENERGY â€” RESTRICTED ACCESS
+            STOSHI GREEN ENERGY RESTRICTED ACCESS
           </p>
         </div>
 

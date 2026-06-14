@@ -143,8 +143,11 @@ export default function AdminDashboard() {
     name: '', location: '', totalCapacity: '', collectedAmount: '', totalMembers: '',
     status: 'Pending', description: '', imageUrl: '', isActive: false,
     powerRating: '', chargingBays: '', dailyUsers: '', co2Saved: '',
-    silverPrice: '', goldPrice: '', platinumPrice: ''
+    silverPrice: '', silverDesc: '', silverFeatures: '',
+    goldPrice: '', goldDesc: '', goldFeatures: '',
+    platinumPrice: '', platinumDesc: '', platinumFeatures: ''
   });
+  const [projectFormTab, setProjectFormTab] = useState('general');
   const [editingProjectId, setEditingProjectId] = useState(null);
   const [projectStatus, setProjectStatus] = useState({ success: false, error: '' });
   const [showProjectForm, setShowProjectForm] = useState(false);
@@ -156,6 +159,8 @@ export default function AdminDashboard() {
   const [activityLogs, setActivityLogs] = useState([]);
 
   const [bulkActionStatus, setBulkActionStatus] = useState('');
+
+  const [distIncomeForms, setDistIncomeForms] = useState({ utility: '', green: '', loyalty: '' });
 
   // â”€â”€â”€ EFFECTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
@@ -324,26 +329,45 @@ export default function AdminDashboard() {
   // ─── HANDLERS: DISTRIBUTION SYSTEM ─────────────────────────────────────────
   const handleGeneratePreview = () => {
     if (isDistLocked) return;
-    const income = Number(distIncomeAmount);
-    if (isNaN(income) || income <= 0) { alert("Enter a valid income amount."); return; }
+    const uIncome = Number(distIncomeForms.utility) || 0;
+    const gIncome = Number(distIncomeForms.green) || 0;
+    const lIncome = Number(distIncomeForms.loyalty) || 0;
+    
+    if (uIncome <= 0 && gIncome <= 0 && lIncome <= 0) { alert("Enter a valid income amount for at least one pool."); return; }
 
     const active = activeProjUsers.filter(u => u.membershipStatus === 'Active');
     const silverCount = active.filter(u => u.membershipType === 'Silver').length;
     const goldCount = active.filter(u => u.membershipType === 'Gold').length;
     const platinumCount = active.filter(u => u.membershipType === 'Platinum').length;
 
-    const silverPool = income * 0.005;
-    const goldPool = income * 0.01;
-    const platinumPool = income * 0.02;
+    // Utility Pool Distributions
+    const utilityPool_Silver = uIncome * 0.005;
+    const utilityPool_Gold = uIncome * 0.01;
+    const utilityPool_Platinum = uIncome * 0.02;
+
+    // Green Impact Pool Distributions
+    const greenPool_Gold = gIncome * 0.01;
+    const greenPool_Platinum = gIncome * 0.02;
+
+    // Loyalty Pool Distributions
+    const loyaltyPool_Platinum = lIncome * 0.02;
 
     setDistPreview({
-      incomeAmount: income,
-      silverPool, goldPool, platinumPool,
-      silverShare: silverCount > 0 ? silverPool / silverCount : 0,
-      goldShare: goldCount > 0 ? goldPool / goldCount : 0,
-      platinumShare: platinumCount > 0 ? platinumPool / platinumCount : 0,
+      utilityIncome: uIncome,
+      greenIncome: gIncome,
+      loyaltyIncome: lIncome,
+      
+      silverUtilityShare: silverCount > 0 ? utilityPool_Silver / silverCount : 0,
+      
+      goldUtilityShare: goldCount > 0 ? utilityPool_Gold / goldCount : 0,
+      goldGreenShare: goldCount > 0 ? greenPool_Gold / goldCount : 0,
+      
+      platinumUtilityShare: platinumCount > 0 ? utilityPool_Platinum / platinumCount : 0,
+      platinumGreenShare: platinumCount > 0 ? greenPool_Platinum / platinumCount : 0,
+      platinumLoyaltyShare: platinumCount > 0 ? loyaltyPool_Platinum / platinumCount : 0,
+      
       silverCount, goldCount, platinumCount,
-      totalDistributed: silverPool + goldPool + platinumPool
+      totalDistributed: utilityPool_Silver + utilityPool_Gold + utilityPool_Platinum + greenPool_Gold + greenPool_Platinum + loyaltyPool_Platinum
     });
     setDistStep(2);
   };
@@ -353,6 +377,7 @@ export default function AdminDashboard() {
     try {
       const docRef = await addDoc(collection(db, 'distributions'), {
         ...distPreview,
+        projectId: activeProjectId,
         distributedAt: serverTimestamp(),
         status: 'confirmed',
         executedBy: currentUser.uid
@@ -369,28 +394,57 @@ export default function AdminDashboard() {
     try {
       const batch = writeBatch(db);
       batch.update(doc(db, 'distributions', currentDistDocId), { status: 'locked' });
+      
+      const totalIncome = distPreview.utilityIncome + distPreview.greenIncome + distPreview.loyaltyIncome;
       batch.set(doc(collection(db, 'companyIncome')), {
-        amount: distPreview.incomeAmount,
+        amount: totalIncome,
+        utilityIncome: distPreview.utilityIncome,
+        greenIncome: distPreview.greenIncome,
+        loyaltyIncome: distPreview.loyaltyIncome,
         enteredBy: currentUser.uid,
         enteredAt: serverTimestamp(),
         distributionId: currentDistDocId,
-        description: 'Distribution income'
+        projectId: activeProjectId,
+        description: 'Multi-Pool Distribution income'
       });
+
+      if (activeProjectId) {
+        batch.set(doc(db, 'projects', activeProjectId), {
+          totalUtilityPool: increment(distPreview.utilityIncome),
+          totalGreenImpactPool: increment(distPreview.greenIncome),
+          totalLoyaltyPool: increment(distPreview.loyaltyIncome),
+        }, { merge: true });
+      }
 
       const activeUsers = activeProjUsers.filter(u => u.membershipStatus === 'Active');
       activeUsers.forEach(user => {
         const type = user.membershipType;
         const earnRef = doc(db, 'userEarnings', user.uid);
         const userRef = doc(db, 'users', user.uid);
+        
+        let uShare = 0, gShare = 0, lShare = 0;
+        
         if (type === 'Silver') {
-          batch.set(earnRef, { utilityPool: increment(distPreview.silverShare), totalEarnings: increment(distPreview.silverShare) }, { merge: true });
-          batch.set(userRef, { totalEarnings: increment(distPreview.silverShare) }, { merge: true });
+          uShare = distPreview.silverUtilityShare;
         } else if (type === 'Gold') {
-          batch.set(earnRef, { utilityPool: increment(distPreview.silverShare), greenImpactPool: increment(distPreview.goldShare), totalEarnings: increment(distPreview.silverShare + distPreview.goldShare) }, { merge: true });
-          batch.set(userRef, { totalEarnings: increment(distPreview.silverShare + distPreview.goldShare) }, { merge: true });
+          uShare = distPreview.goldUtilityShare;
+          gShare = distPreview.goldGreenShare;
         } else if (type === 'Platinum') {
-          batch.set(earnRef, { utilityPool: increment(distPreview.silverShare), greenImpactPool: increment(distPreview.goldShare), loyaltyPool: increment(distPreview.platinumShare), totalEarnings: increment(distPreview.silverShare + distPreview.goldShare + distPreview.platinumShare) }, { merge: true });
-          batch.set(userRef, { totalEarnings: increment(distPreview.silverShare + distPreview.goldShare + distPreview.platinumShare) }, { merge: true });
+          uShare = distPreview.platinumUtilityShare;
+          gShare = distPreview.platinumGreenShare;
+          lShare = distPreview.platinumLoyaltyShare;
+        }
+        
+        const totalShare = uShare + gShare + lShare;
+        
+        if (totalShare > 0) {
+          batch.set(earnRef, { 
+            utilityPool: increment(uShare), 
+            greenImpactPool: increment(gShare),
+            loyaltyPool: increment(lShare),
+            totalEarnings: increment(totalShare) 
+          }, { merge: true });
+          batch.set(userRef, { totalEarnings: increment(totalShare) }, { merge: true });
         }
       });
 
@@ -497,8 +551,14 @@ export default function AdminDashboard() {
       dailyUsers: projectForm.dailyUsers,
       co2Saved: projectForm.co2Saved,
       silverPrice: Number(projectForm.silverPrice) || 0,
+      silverDesc: projectForm.silverDesc || '',
+      silverFeatures: projectForm.silverFeatures || '',
       goldPrice: Number(projectForm.goldPrice) || 0,
+      goldDesc: projectForm.goldDesc || '',
+      goldFeatures: projectForm.goldFeatures || '',
       platinumPrice: Number(projectForm.platinumPrice) || 0,
+      platinumDesc: projectForm.platinumDesc || '',
+      platinumFeatures: projectForm.platinumFeatures || '',
       lastUpdated: new Date().toISOString()
     };
     if (isNaN(data.totalCapacity) || isNaN(data.collectedAmount) || isNaN(data.totalMembers)) {
@@ -516,7 +576,8 @@ export default function AdminDashboard() {
       setProjectStatus({ success: true, error: '' });
       setShowProjectForm(false);
       setEditingProjectId(null);
-      setProjectForm({ name: '', location: '', totalCapacity: '', collectedAmount: '', totalMembers: '', status: 'Pending', description: '', imageUrl: '', isActive: false, powerRating: '', chargingBays: '', dailyUsers: '', co2Saved: '', silverPrice: '', goldPrice: '', platinumPrice: '' });
+      setProjectForm({ name: '', location: '', totalCapacity: '', collectedAmount: '', totalMembers: '', status: 'Pending', description: '', imageUrl: '', isActive: false, powerRating: '', chargingBays: '', dailyUsers: '', co2Saved: '', silverPrice: '', silverDesc: '', silverFeatures: '', goldPrice: '', goldDesc: '', goldFeatures: '', platinumPrice: '', platinumDesc: '', platinumFeatures: '' });
+      setProjectFormTab('general');
       confetti({ particleCount: 40, spread: 40, origin: { y: 0.8 }, colors: ['#74E61F', '#22C55E'] });
       setTimeout(() => setProjectStatus(p => ({ ...p, success: false })), 3000);
     } catch (err) {
@@ -541,10 +602,17 @@ export default function AdminDashboard() {
       dailyUsers: project.dailyUsers || '',
       co2Saved: project.co2Saved || '',
       silverPrice: project.silverPrice || '',
+      silverDesc: project.silverDesc || '',
+      silverFeatures: project.silverFeatures || '',
       goldPrice: project.goldPrice || '',
-      platinumPrice: project.platinumPrice || ''
+      goldDesc: project.goldDesc || '',
+      goldFeatures: project.goldFeatures || '',
+      platinumPrice: project.platinumPrice || '',
+      platinumDesc: project.platinumDesc || '',
+      platinumFeatures: project.platinumFeatures || ''
     });
     setShowProjectForm(true);
+    setProjectFormTab('general');
   };
 
   const handleDeleteProject = async (projectId) => {
@@ -614,14 +682,14 @@ export default function AdminDashboard() {
     exportToCSV(
       distributionsList.map(d => ({
         Date: d.distributedAt?.toDate ? d.distributedAt.toDate().toLocaleDateString('en-IN') : 'N/A',
-        Income: d.incomeAmount,
-        'Silver Share': d.silverShare,
-        'Gold Share': d.goldShare,
-        'Platinum Share': d.platinumShare,
+        'Utility Income': d.utilityIncome || 0,
+        'Green Income': d.greenIncome || 0,
+        'Loyalty Income': d.loyaltyIncome || 0,
+        'Total Dist': d.totalDistributed || 0,
         Status: d.status
       })),
       'distributions_export',
-      ['Date', 'Income', 'Silver Share', 'Gold Share', 'Platinum Share', 'Status']
+      ['Date', 'Utility Income', 'Green Income', 'Loyalty Income', 'Total Dist', 'Status']
     );
   };
 
@@ -661,8 +729,8 @@ export default function AdminDashboard() {
   const bg = 'bg-[#F7FBF9]';
   const cardBg = 'bg-white';
   const cardBorder = 'border-[#B7E4C7]';
-  const textPrimary = 'text-[#1B4332]';
-  const textSecondary = 'text-[#40916C]';
+ const textPrimary = 'text-gray-900';
+const textSecondary = 'text-gray-700';
   const inputBg = 'bg-[#F7FBF9]';
   // Light mode is always on â€” darkMode kept as false so existing ternaries resolve correctly
   const darkMode = false;
@@ -830,7 +898,7 @@ export default function AdminDashboard() {
                       <div key={log.id || i} className={`p-3 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} rounded-xl border ${cardBorder} flex justify-between items-center text-xs`}>
                         <div>
                           <span className={`font-bold block ${textPrimary}`}>{log.action}</span>
-                          <span className={`text-[10px] font-semibold ${textSecondary}`}>{log.details || ''} â€” {log.userName}</span>
+                          <span className={`text-[10px] font-semibold ${textSecondary}`}>{log.details || ''}  {log.userName}</span>
                         </div>
                         <span className={`text-[10px] ${textSecondary}`}>
                           {log.timestamp?.toDate ? new Date(log.timestamp.toDate()).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
@@ -856,10 +924,10 @@ export default function AdminDashboard() {
                       <Search className="absolute left-4.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                       <input type="text" placeholder="Search members..." value={userSearch}
                         onChange={(e) => setUserSearch(e.target.value)}
-                        className={`w-full pl-11 pr-4 py-2.5 rounded-2xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-semibold text-white transition-colors`} />
+                        className={`w-full pl-11 pr-4 py-2.5 rounded-2xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-semibold text-[#1B4332] transition-colors`} />
                     </div>
                     <select value={memberFilter} onChange={(e) => setMemberFilter(e.target.value)}
-                      className={`px-4 py-2.5 rounded-2xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-semibold text-white transition-colors`}>
+                      className={`px-4 py-2.5 rounded-2xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-semibold text-[#1B4332] transition-colors`}>
                       <option value="All">All Packages</option>
                       <option value="Silver">Silver</option>
                       <option value="Gold">Gold</option>
@@ -995,7 +1063,7 @@ export default function AdminDashboard() {
                       <Search className="absolute left-4.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                       <input type="text" placeholder="Search transactions..." value={paymentSearch}
                         onChange={(e) => setPaymentSearch(e.target.value)}
-                        className={`w-full pl-11 pr-4 py-2.5 rounded-2xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-semibold text-white transition-colors`} />
+                        className={`w-full pl-11 pr-4 py-2.5 rounded-2xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-semibold text-[#1B4332] transition-colors`} />
                     </div>
                     <button onClick={handleExportPayments}
                       className="px-4 py-2.5 rounded-2xl bg-[#F7FBF9] border border-[#B7E4C7] text-[#2D3748] hover:bg-[#D8F3DC] hover:text-[#1B4332] transition-all text-xs font-bold uppercase cursor-pointer flex items-center gap-2">
@@ -1058,13 +1126,13 @@ export default function AdminDashboard() {
                       <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-2`}>Amount (â‚¹)</label>
                       <input type="number" value={incomeForm.amount} onChange={(e) => setIncomeForm({...incomeForm, amount: e.target.value})}
                         placeholder="e.g. 500000"
-                        className={`w-full px-4 py-3 rounded-xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-bold text-white transition-colors`} required />
+                        className={`w-full px-4 py-3 rounded-xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-bold text-[#1B4332] transition-colors`} required />
                     </div>
                     <div>
                       <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-2`}>Description</label>
                       <input type="text" value={incomeForm.description} onChange={(e) => setIncomeForm({...incomeForm, description: e.target.value})}
                         placeholder="e.g. Q1 Revenue"
-                        className={`w-full px-4 py-3 rounded-xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-bold text-white transition-colors`} />
+                        className={`w-full px-4 py-3 rounded-xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-bold text-[#1B4332] transition-colors`} />
                     </div>
                   </div>
                   <button type="submit" disabled={incomeSubmitting}
@@ -1133,14 +1201,28 @@ export default function AdminDashboard() {
                           A distribution has already been locked. Cannot run again.
                         </div>
                       )}
-                      <div>
-                        <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-2`}>Company Income Amount (â‚¹)</label>
-                        <input type="number" value={distIncomeAmount} onChange={(e) => setDistIncomeAmount(e.target.value)}
-                          disabled={isDistLocked} placeholder="e.g. 500000"
-                          className={`w-full max-w-md px-4 py-3 rounded-xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-bold text-white transition-colors disabled:opacity-50`} />
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-2`}>Utility Pool Income (â‚¹)</label>
+                          <input type="number" value={distIncomeForms.utility} onChange={(e) => setDistIncomeForms({...distIncomeForms, utility: e.target.value})}
+                            disabled={isDistLocked} placeholder="e.g. 100000"
+                            className={`w-full px-4 py-3 rounded-xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-bold text-[#1B4332] transition-colors disabled:opacity-50`} />
+                        </div>
+                        <div>
+                          <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-2`}>Green Impact Pool Income (â‚¹)</label>
+                          <input type="number" value={distIncomeForms.green} onChange={(e) => setDistIncomeForms({...distIncomeForms, green: e.target.value})}
+                            disabled={isDistLocked} placeholder="e.g. 50000"
+                            className={`w-full px-4 py-3 rounded-xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-bold text-[#1B4332] transition-colors disabled:opacity-50`} />
+                        </div>
+                        <div>
+                          <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-2`}>Loyalty Pool Income (â‚¹)</label>
+                          <input type="number" value={distIncomeForms.loyalty} onChange={(e) => setDistIncomeForms({...distIncomeForms, loyalty: e.target.value})}
+                            disabled={isDistLocked} placeholder="e.g. 20000"
+                            className={`w-full px-4 py-3 rounded-xl ${inputBg} border ${cardBorder} focus:border-[#74E61F] focus:outline-none text-xs font-bold text-[#1B4332] transition-colors disabled:opacity-50`} />
+                        </div>
                       </div>
-                      <button onClick={handleGeneratePreview} disabled={isDistLocked || !distIncomeAmount}
-                        className="px-6 py-3 bg-[#74E61F] text-[#042A1d] font-sora font-bold uppercase tracking-wider rounded-xl hover:bg-white hover:text-black transition-all cursor-pointer text-xs disabled:opacity-50 disabled:cursor-not-allowed">
+                      <button onClick={handleGeneratePreview} disabled={isDistLocked || (!distIncomeForms.utility && !distIncomeForms.green && !distIncomeForms.loyalty)}
+                        className="px-6 py-3 bg-[#1B4332] text-white font-sora font-bold uppercase tracking-wider rounded-xl hover:bg-[#74E61F] hover:text-[#042A1d] transition-all cursor-pointer text-xs disabled:opacity-50 disabled:cursor-not-allowed mt-4 block">
                         Generate Preview
                       </button>
                     </div>
@@ -1150,9 +1232,27 @@ export default function AdminDashboard() {
                     <div className="space-y-6">
                       <h4 className={`text-sm font-bold ${textPrimary} uppercase tracking-wider`}>Step 2: Preview Distribution</h4>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <PoolCard label="Silver Pool (0.5%)" pool={distPreview.silverPool} count={distPreview.silverCount} share={distPreview.silverShare} />
-                        <PoolCard label="Gold Pool (1%)" pool={distPreview.goldPool} count={distPreview.goldCount} share={distPreview.goldShare} />
-                        <PoolCard label="Platinum Pool (2%)" pool={distPreview.platinumPool} count={distPreview.platinumCount} share={distPreview.platinumShare} />
+                        <div className={`p-4 bg-slate-50 border ${cardBorder} rounded-xl`}>
+                          <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Utility Pool Rewards</h5>
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-slate-600 flex justify-between"><span>Silver Share:</span> <span>{formatRupee(distPreview.silverUtilityShare)}</span></p>
+                            <p className="text-xs font-semibold text-slate-600 flex justify-between"><span>Gold Share:</span> <span>{formatRupee(distPreview.goldUtilityShare)}</span></p>
+                            <p className="text-xs font-semibold text-slate-600 flex justify-between"><span>Platinum Share:</span> <span>{formatRupee(distPreview.platinumUtilityShare)}</span></p>
+                          </div>
+                        </div>
+                        <div className={`p-4 bg-slate-50 border ${cardBorder} rounded-xl`}>
+                          <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Green Impact Pool Rewards</h5>
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-slate-600 flex justify-between"><span>Gold Share:</span> <span>{formatRupee(distPreview.goldGreenShare)}</span></p>
+                            <p className="text-xs font-semibold text-slate-600 flex justify-between"><span>Platinum Share:</span> <span>{formatRupee(distPreview.platinumGreenShare)}</span></p>
+                          </div>
+                        </div>
+                        <div className={`p-4 bg-slate-50 border ${cardBorder} rounded-xl`}>
+                          <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Loyalty Pool Rewards</h5>
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-slate-600 flex justify-between"><span>Platinum Share:</span> <span>{formatRupee(distPreview.platinumLoyaltyShare)}</span></p>
+                          </div>
+                        </div>
                       </div>
                       <div className={`flex justify-between items-center ${darkMode ? 'bg-white' : 'bg-slate-100'} p-4 rounded-xl border ${cardBorder}`}>
                         <span className={`text-xs ${textSecondary} font-bold uppercase`}>Total Distributing</span>
@@ -1210,10 +1310,10 @@ export default function AdminDashboard() {
                       <thead>
                         <tr className={`border-b ${cardBorder} text-[9px] font-extrabold uppercase ${textSecondary} tracking-wider`}>
                           <th className="p-4">Date</th>
-                          <th className="p-4 text-right">Income</th>
-                          <th className="p-4 text-right">Silver Share</th>
-                          <th className="p-4 text-right">Gold Share</th>
-                          <th className="p-4 text-right">Platinum Share</th>
+                          <th className="p-4 text-right">Utility Inc.</th>
+                          <th className="p-4 text-right">Green Inc.</th>
+                          <th className="p-4 text-right">Loyalty Inc.</th>
+                          <th className="p-4 text-right">Total Distributed</th>
                           <th className="p-4 text-center">Status</th>
                         </tr>
                       </thead>
@@ -1223,10 +1323,10 @@ export default function AdminDashboard() {
                             <td className={`p-4 ${textSecondary}`}>
                               {dist.distributedAt?.toDate ? new Date(dist.distributedAt.toDate()).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
                             </td>
-                            <td className="p-4 text-right text-white font-bold">{formatRupee(dist.incomeAmount)}</td>
-                            <td className="p-4 text-right text-[#74E61F] font-semibold">{formatRupee(dist.silverShare)}</td>
-                            <td className="p-4 text-right text-[#74E61F] font-semibold">{formatRupee(dist.goldShare)}</td>
-                            <td className="p-4 text-right text-[#74E61F] font-semibold">{formatRupee(dist.platinumShare)}</td>
+                            <td className="p-4 text-right text-[#1B4332] font-bold">{formatRupee(dist.utilityIncome || 0)}</td>
+                            <td className="p-4 text-right text-[#1B4332] font-semibold">{formatRupee(dist.greenIncome || 0)}</td>
+                            <td className="p-4 text-right text-[#1B4332] font-semibold">{formatRupee(dist.loyaltyIncome || 0)}</td>
+                            <td className="p-4 text-right text-[#74E61F] font-semibold">{formatRupee(dist.totalDistributed || 0)}</td>
                             <td className="p-4 text-center">
                               <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${dist.status === 'confirmed' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>{dist.status}</span>
                             </td>
@@ -1301,7 +1401,7 @@ export default function AdminDashboard() {
                     <h3 className={`text-xl font-extrabold font-sora ${textPrimary}`}>Project Management</h3>
                     <p className={`text-xs mt-1 ${textSecondary}`}>Create, edit, and manage all projects</p>
                   </div>
-                  <button onClick={() => { setShowProjectForm(true); setEditingProjectId(null); setProjectForm({ name: '', location: '', totalCapacity: '', collectedAmount: '', totalMembers: '', status: 'Pending', description: '', imageUrl: '', isActive: false, powerRating: '', chargingBays: '', dailyUsers: '', co2Saved: '', silverPrice: '', goldPrice: '', platinumPrice: '' }); }}
+                  <button onClick={() => { setShowProjectForm(true); setProjectFormTab('general'); setEditingProjectId(null); setProjectForm({ name: '', location: '', totalCapacity: '', collectedAmount: '', totalMembers: '', status: 'Pending', description: '', imageUrl: '', isActive: false, powerRating: '', chargingBays: '', dailyUsers: '', co2Saved: '', silverPrice: '', silverDesc: '', silverFeatures: '', goldPrice: '', goldDesc: '', goldFeatures: '', platinumPrice: '', platinumDesc: '', platinumFeatures: '' }); }}
                     className="px-5 py-3 rounded-2xl bg-[#74E61F] text-[#042A1d] font-sora font-bold uppercase tracking-wider hover:bg-white hover:text-black transition-all cursor-pointer text-xs flex items-center gap-2">
                     <Plus className="w-4 h-4" /> Add Project
                   </button>
@@ -1364,24 +1464,24 @@ export default function AdminDashboard() {
 
                         {(project.powerRating || project.chargingBays || project.dailyUsers || project.co2Saved) && (
                           <div className="grid grid-cols-2 gap-2 text-[10px]">
-                            {project.powerRating && <span className={textSecondary}>âš¡ {project.powerRating}</span>}
-                            {project.chargingBays && <span className={textSecondary}>ðŸ”Œ {project.chargingBays}</span>}
-                            {project.dailyUsers && <span className={textSecondary}>ðŸ‘¤ {project.dailyUsers}</span>}
-                            {project.co2Saved && <span className={textSecondary}>ðŸŒ¿ {project.co2Saved}</span>}
+                            {project.powerRating && <span className={textSecondary}>⚡ {project.powerRating}</span>}
+                            {project.chargingBays && <span className={textSecondary}>🔌 {project.chargingBays}</span>}
+                            {project.dailyUsers && <span className={textSecondary}>👤 {project.dailyUsers}</span>}
+                            {project.co2Saved && <span className={textSecondary}>🌿 {project.co2Saved}</span>}
                           </div>
                         )}
                         {(project.silverPrice || project.goldPrice || project.platinumPrice) && (
                           <div className="flex gap-2 text-[9px] font-bold">
-                            {project.silverPrice > 0 && <span className="px-2 py-0.5 rounded bg-slate-500/10 text-[#2D3748]">Silver â‚¹{Number(project.silverPrice).toLocaleString('en-IN')}</span>}
-                            {project.goldPrice > 0 && <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300">Gold â‚¹{Number(project.goldPrice).toLocaleString('en-IN')}</span>}
-                            {project.platinumPrice > 0 && <span className="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300">Platinum â‚¹{Number(project.platinumPrice).toLocaleString('en-IN')}</span>}
+                            {project.silverPrice > 0 && <span className="px-2 py-0.5 rounded bg-slate-500/10 text-[#2D3748]">Silver ₹{Number(project.silverPrice).toLocaleString('en-IN')}</span>}
+                            {project.goldPrice > 0 && <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300">Gold ₹{Number(project.goldPrice).toLocaleString('en-IN')}</span>}
+                            {project.platinumPrice > 0 && <span className="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300">Platinum ₹{Number(project.platinumPrice).toLocaleString('en-IN')}</span>}
                           </div>
                         )}
                         {project.description && (
                           <p className={`text-[10px] ${textSecondary} leading-relaxed`}>{project.description}</p>
                         )}
 
-                        <div className="flex items-center gap-2 pt-2 border-t ${cardBorder}">
+                        <div className={`flex items-center gap-2 pt-2 border-t ${cardBorder}`}>
                           <button onClick={() => handleEditProject(project)}
                             className="flex-1 py-2 rounded-xl bg-[#F7FBF9] border border-[#B7E4C7] text-[#2D3748] hover:bg-[#D8F3DC] hover:text-[#1B4332] transition-all text-[10px] font-bold uppercase cursor-pointer flex items-center justify-center gap-1.5">
                             <Edit className="w-3 h-3" /> Edit
@@ -1412,75 +1512,129 @@ export default function AdminDashboard() {
                 {showProjectForm && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
                     <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                      className={`w-full max-w-lg ${cardBg} border ${cardBorder} rounded-[32px] p-6 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto`}>
-                      <div className={`flex justify-between items-center border-b ${cardBorder} pb-4`}>
+                      className={`w-full max-w-2xl ${cardBg} border ${cardBorder} rounded-[32px] p-6 shadow-2xl flex flex-col max-h-[90vh]`}>
+                      <div className={`flex justify-between items-center border-b ${cardBorder} pb-4 mb-4 flex-shrink-0`}>
                         <h4 className={`text-base font-bold font-sora ${textPrimary}`}>{editingProjectId ? 'Edit Project' : 'Add New Project'}</h4>
-                        <button onClick={() => setShowProjectForm(false)} className={`${darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-800'} cursor-pointer`}><X className="w-5 h-5" /></button>
+                        <button onClick={() => setShowProjectForm(false)} className={`${darkMode ? 'text-slate-400 hover:text-black' : 'text-slate-500 hover:text-slate-800'} cursor-pointer`}><X className="w-5 h-5" /></button>
                       </div>
-                      <form onSubmit={handleProjectSubmit} className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          <InputField label="Project Name" value={projectForm.name} onChange={(e) => setProjectForm({...projectForm, name: e.target.value})} inputBg={inputBg} darkMode={darkMode} required />
-                          <InputField label="Location" value={projectForm.location} onChange={(e) => setProjectForm({...projectForm, location: e.target.value})} inputBg={inputBg} darkMode={darkMode} required />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <InputField label="Total Goal (â‚¹)" type="number" value={projectForm.totalCapacity} onChange={(e) => setProjectForm({...projectForm, totalCapacity: e.target.value})} inputBg={inputBg} darkMode={darkMode} required />
-                          <InputField label="Collected (â‚¹)" type="number" value={projectForm.collectedAmount} onChange={(e) => setProjectForm({...projectForm, collectedAmount: e.target.value})} inputBg={inputBg} darkMode={darkMode} required />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <InputField label="Total Members" type="number" value={projectForm.totalMembers} onChange={(e) => setProjectForm({...projectForm, totalMembers: e.target.value})} inputBg={inputBg} darkMode={darkMode} required />
-                          <div className="space-y-1">
-                            <label className={`text-[10px] font-bold uppercase ${textSecondary} block`}>Status</label>
-                            <select value={projectForm.status} onChange={(e) => setProjectForm({...projectForm, status: e.target.value})}
-                              className={`w-full px-3.5 py-2.5 rounded-xl ${inputBg} border ${darkMode ? 'border-[#B7E4C7]' : 'border-slate-200'} text-xs font-semibold text-white focus:outline-none focus:border-[#74E61F]`}>
-                              <option value="Planning">Planning</option>
-                              <option value="In Progress">In Progress</option>
-                              <option value="Operational">Operational</option>
-                              <option value="Closed">Closed</option>
-                            </select>
-                          </div>
-                        </div>
 
-                        {/* Specs Section */}
-                        <div className={`p-4 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} border ${cardBorder} rounded-2xl space-y-3`}>
-                          <span className={`text-[9px] font-bold uppercase tracking-wider ${textSecondary}`}>Project Specifications</span>
-                          <div className="grid grid-cols-2 gap-3">
-                            <InputField label="Power Rating (e.g. 120 kW)" value={projectForm.powerRating} onChange={(e) => setProjectForm({...projectForm, powerRating: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
-                            <InputField label="Charging Bays (e.g. 8 Ports)" value={projectForm.chargingBays} onChange={(e) => setProjectForm({...projectForm, chargingBays: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
-                            <InputField label="Daily Users (e.g. 120+)" value={projectForm.dailyUsers} onChange={(e) => setProjectForm({...projectForm, dailyUsers: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
-                            <InputField label="COâ‚‚ Saved/yr (e.g. 48 Tonnes)" value={projectForm.co2Saved} onChange={(e) => setProjectForm({...projectForm, co2Saved: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
-                          </div>
-                        </div>
-
-                        {/* Tier Pricing Section */}
-                        <div className={`p-4 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} border ${cardBorder} rounded-2xl space-y-3`}>
-                          <span className={`text-[9px] font-bold uppercase tracking-wider ${textSecondary}`}>Tier Pricing (â‚¹)</span>
-                          <div className="grid grid-cols-3 gap-3">
-                            <InputField label="Silver Price" type="number" value={projectForm.silverPrice} onChange={(e) => setProjectForm({...projectForm, silverPrice: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
-                            <InputField label="Gold Price" type="number" value={projectForm.goldPrice} onChange={(e) => setProjectForm({...projectForm, goldPrice: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
-                            <InputField label="Platinum Price" type="number" value={projectForm.platinumPrice} onChange={(e) => setProjectForm({...projectForm, platinumPrice: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-1`}>Description</label>
-                          <textarea value={projectForm.description} onChange={(e) => setProjectForm({...projectForm, description: e.target.value})} rows={2}
-                            className={`w-full px-3.5 py-2.5 rounded-xl ${inputBg} border ${darkMode ? 'border-[#B7E4C7]' : 'border-slate-200'} text-xs font-semibold text-white focus:outline-none focus:border-[#74E61F] resize-none`} placeholder="Brief project description..." />
-                        </div>
-                        <InputField label="Image URL (optional)" value={projectForm.imageUrl} onChange={(e) => setProjectForm({...projectForm, imageUrl: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
-                        <label className="flex items-center space-x-3 cursor-pointer">
-                          <input type="checkbox" checked={projectForm.isActive} onChange={(e) => setProjectForm({...projectForm, isActive: e.target.checked})}
-                            className="w-4 h-4 rounded bg-[#0B3022] border border-[#B7E4C7] accent-[#74E61F]" />
-                          <span className={`text-xs font-semibold ${textPrimary}`}>Set as active project (visible on landing page)</span>
-                        </label>
-                        <div className="flex gap-3 pt-4 border-t ${cardBorder}">
-                          <button type="button" onClick={() => setShowProjectForm(false)}
-                            className={`flex-1 py-3 border ${cardBorder} rounded-2xl text-xs font-bold uppercase ${textSecondary} hover:text-white transition cursor-pointer`}>Cancel</button>
-                          <button type="submit"
-                            className="flex-1 py-3 bg-[#74E61F] text-[#042A1d] rounded-2xl text-xs font-bold uppercase hover:bg-white hover:text-black transition cursor-pointer">
-                            {editingProjectId ? 'Update Project' : 'Create Project'}
+                      <div className="flex gap-2 mb-4 overflow-x-auto flex-shrink-0 pb-2">
+                        {['general', 'silver', 'gold', 'platinum'].map(tab => (
+                          <button key={tab} onClick={() => setProjectFormTab(tab)}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-colors whitespace-nowrap ${projectFormTab === tab ? 'bg-[#74E61F] text-[#042A1d]' : `${darkMode ? 'bg-white/5 text-slate-400 hover:bg-white/10' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}`}>
+                            {tab === 'general' ? 'General Info' : `${tab} Tier`}
                           </button>
-                        </div>
-                      </form>
+                        ))}
+                      </div>
+
+                      <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                        <form id="project-form" onSubmit={handleProjectSubmit} className="space-y-4">
+                          {projectFormTab === 'general' && (
+                            <>
+                              <div className="grid grid-cols-2 gap-4">
+                                <InputField label="Project Name" value={projectForm.name} onChange={(e) => setProjectForm({...projectForm, name: e.target.value})} inputBg={inputBg} darkMode={darkMode} required />
+                                <InputField label="Location" value={projectForm.location} onChange={(e) => setProjectForm({...projectForm, location: e.target.value})} inputBg={inputBg} darkMode={darkMode} required />
+                              </div>
+                              <div className="grid grid-cols-2 gap-4">
+                                <InputField label="Total Goal (₹)" type="number" value={projectForm.totalCapacity} onChange={(e) => setProjectForm({...projectForm, totalCapacity: e.target.value})} inputBg={inputBg} darkMode={darkMode} required />
+                                <InputField label="Collected (₹)" type="number" value={projectForm.collectedAmount} onChange={(e) => setProjectForm({...projectForm, collectedAmount: e.target.value})} inputBg={inputBg} darkMode={darkMode} required />
+                              </div>
+                              <div className="grid grid-cols-2 gap-4">
+                                <InputField label="Total Members" type="number" value={projectForm.totalMembers} onChange={(e) => setProjectForm({...projectForm, totalMembers: e.target.value})} inputBg={inputBg} darkMode={darkMode} required />
+                                <div className="space-y-1">
+                                  <label className={`text-[10px] font-bold uppercase ${textSecondary} block`}>Status</label>
+                                  <select value={projectForm.status} onChange={(e) => setProjectForm({...projectForm, status: e.target.value})}
+                                    className={`w-full px-3.5 py-2.5 rounded-xl ${inputBg} border ${darkMode ? 'border-[#B7E4C7]' : 'border-slate-200'} text-xs font-semibold text-black focus:outline-none focus:border-[#74E61F]`}>
+                                    <option value="Planning">Planning</option>
+                                    <option value="In Progress">In Progress</option>
+                                    <option value="Operational">Operational</option>
+                                    <option value="Closed">Closed</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div className={`p-4 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} border ${cardBorder} rounded-2xl space-y-3`}>
+                                <span className={`text-[9px] font-bold uppercase tracking-wider ${textSecondary}`}>Project Specifications</span>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <InputField label="Power Rating (e.g. 120 kW)" value={projectForm.powerRating} onChange={(e) => setProjectForm({...projectForm, powerRating: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
+                                  <InputField label="Charging Bays (e.g. 8 Ports)" value={projectForm.chargingBays} onChange={(e) => setProjectForm({...projectForm, chargingBays: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
+                                  <InputField label="Daily Users (e.g. 120+)" value={projectForm.dailyUsers} onChange={(e) => setProjectForm({...projectForm, dailyUsers: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
+                                  <InputField label="CO₂ Saved/yr (e.g. 48 Tonnes)" value={projectForm.co2Saved} onChange={(e) => setProjectForm({...projectForm, co2Saved: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-1`}>Description</label>
+                                <textarea value={projectForm.description} onChange={(e) => setProjectForm({...projectForm, description: e.target.value})} rows={2}
+                                  className={`w-full px-3.5 py-2.5 rounded-xl ${inputBg} border ${darkMode ? 'border-[#B7E4C7]' : 'border-slate-200'} text-xs font-semibold text-black focus:outline-none focus:border-[#74E61F] resize-none`} placeholder="Brief project description..." />
+                              </div>
+                              
+                              <label className="flex items-center space-x-3 cursor-pointer mt-2">
+                                <input type="checkbox" checked={projectForm.isActive} onChange={(e) => setProjectForm({...projectForm, isActive: e.target.checked})}
+                                  className="w-4 h-4 rounded bg-[#0B3022] border border-[#B7E4C7] accent-[#74E61F]" />
+                                <span className={`text-xs font-semibold ${textPrimary}`}>Set as active project (visible on landing page)</span>
+                              </label>
+                            </>
+                          )}
+
+                          {projectFormTab === 'silver' && (
+                            <div className="space-y-4">
+                              <InputField label="Silver Tier Price (₹)" type="number" value={projectForm.silverPrice} onChange={(e) => setProjectForm({...projectForm, silverPrice: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
+                              <div>
+                                <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-1`}>Silver Tier Description</label>
+                                <textarea value={projectForm.silverDesc} onChange={(e) => setProjectForm({...projectForm, silverDesc: e.target.value})} rows={2}
+                                  className={`w-full px-3.5 py-2.5 rounded-xl ${inputBg} border ${darkMode ? 'border-[#B7E4C7]' : 'border-slate-200'} text-xs font-semibold text-black focus:outline-none focus:border-[#74E61F] resize-none`} placeholder="Description for Silver Membership..." />
+                              </div>
+                              <div>
+                                <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-1`}>Features (Comma Separated)</label>
+                                <textarea value={projectForm.silverFeatures} onChange={(e) => setProjectForm({...projectForm, silverFeatures: e.target.value})} rows={3}
+                                  className={`w-full px-3.5 py-2.5 rounded-xl ${inputBg} border ${darkMode ? 'border-[#B7E4C7]' : 'border-slate-200'} text-xs font-semibold text-black focus:outline-none focus:border-[#74E61F] resize-none`} placeholder="Feature 1, Feature 2, Feature 3..." />
+                              </div>
+                            </div>
+                          )}
+
+                          {projectFormTab === 'gold' && (
+                            <div className="space-y-4">
+                              <InputField label="Gold Tier Price (₹)" type="number" value={projectForm.goldPrice} onChange={(e) => setProjectForm({...projectForm, goldPrice: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
+                              <div>
+                                <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-1`}>Gold Tier Description</label>
+                                <textarea value={projectForm.goldDesc} onChange={(e) => setProjectForm({...projectForm, goldDesc: e.target.value})} rows={2}
+                                  className={`w-full px-3.5 py-2.5 rounded-xl ${inputBg} border ${darkMode ? 'border-[#B7E4C7]' : 'border-slate-200'} text-xs font-semibold text-black focus:outline-none focus:border-[#74E61F] resize-none`} placeholder="Description for Gold Membership..." />
+                              </div>
+                              <div>
+                                <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-1`}>Features (Comma Separated)</label>
+                                <textarea value={projectForm.goldFeatures} onChange={(e) => setProjectForm({...projectForm, goldFeatures: e.target.value})} rows={3}
+                                  className={`w-full px-3.5 py-2.5 rounded-xl ${inputBg} border ${darkMode ? 'border-[#B7E4C7]' : 'border-slate-200'} text-xs font-semibold text-black focus:outline-none focus:border-[#74E61F] resize-none`} placeholder="Feature 1, Feature 2, Feature 3..." />
+                              </div>
+                            </div>
+                          )}
+
+                          {projectFormTab === 'platinum' && (
+                            <div className="space-y-4">
+                              <InputField label="Platinum Tier Price (₹)" type="number" value={projectForm.platinumPrice} onChange={(e) => setProjectForm({...projectForm, platinumPrice: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
+                              <div>
+                                <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-1`}>Platinum Tier Description</label>
+                                <textarea value={projectForm.platinumDesc} onChange={(e) => setProjectForm({...projectForm, platinumDesc: e.target.value})} rows={2}
+                                  className={`w-full px-3.5 py-2.5 rounded-xl ${inputBg} border ${darkMode ? 'border-[#B7E4C7]' : 'border-slate-200'} text-xs font-semibold text-black focus:outline-none focus:border-[#74E61F] resize-none`} placeholder="Description for Platinum Membership..." />
+                              </div>
+                              <div>
+                                <label className={`text-[10px] font-bold uppercase ${textSecondary} block mb-1`}>Features (Comma Separated)</label>
+                                <textarea value={projectForm.platinumFeatures} onChange={(e) => setProjectForm({...projectForm, platinumFeatures: e.target.value})} rows={3}
+                                  className={`w-full px-3.5 py-2.5 rounded-xl ${inputBg} border ${darkMode ? 'border-[#B7E4C7]' : 'border-slate-200'} text-xs font-semibold text-black focus:outline-none focus:border-[#74E61F] resize-none`} placeholder="Feature 1, Feature 2, Feature 3..." />
+                              </div>
+                            </div>
+                          )}
+                        </form>
+                      </div>
+
+                      <div className={`flex gap-3 pt-4 border-t ${cardBorder} mt-4 flex-shrink-0`}>
+                        <button type="button" onClick={() => setShowProjectForm(false)}
+                          className={`flex-1 py-3 border ${cardBorder} rounded-2xl text-xs font-bold uppercase ${textSecondary} hover:text-white transition cursor-pointer`}>Cancel</button>
+                        <button type="submit" form="project-form"
+                          className="flex-1 py-3 bg-[#74E61F] text-[#042A1d] rounded-2xl text-xs font-bold uppercase hover:bg-white hover:text-black transition cursor-pointer">
+                          {editingProjectId ? 'Update Project' : 'Create Project'}
+                        </button>
+                      </div>
                     </motion.div>
                   </div>
                 )}

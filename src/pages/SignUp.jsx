@@ -130,10 +130,11 @@ export default function SignUp() {
             <label className={labelClass}>Selected Plan</label>
             <select name="plan" value={formData.plan} onChange={handleChange}
               className="w-full px-4 py-3 rounded-2xl bg-[#F7FBF9] border border-[#B7E4C7] focus:border-[#40916C] focus:outline-none text-sm font-medium text-[#2D3748] transition-colors appearance-none cursor-pointer">
-              <option value="Silver">Silver Plan (â‚¹7,500)</option>
-              <option value="Gold">Gold Plan (â‚¹15,000)</option>
-              <option value="Platinum">Platinum Plan (â‚¹30,000)</option>
+              <option value="Silver">Silver Plan (7,500)</option>
+              <option value="Gold">Gold Plan (15,000)</option>
+              <option value="Platinum">Platinum Plan (30,000)</option>
             </select>
+            
           </div>
 
           <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}

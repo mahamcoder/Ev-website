@@ -23,6 +23,7 @@ export default function Home() {
   const navigate = useNavigate();
 
   const [projects, setProjects] = useState([]);
+  const [activeProjects, setActiveProjects] = useState([]);
   const [activeProject, setActiveProject] = useState(null);
 
   useEffect(() => {
@@ -31,9 +32,15 @@ export default function Home() {
       (snapshot) => {
         const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         setProjects(list);
-        const active = list.find(p => p.isActive === true);
-        if (active) setActiveProject(active);
-        else if (list.length > 0) setActiveProject(list[0]);
+        const actives = list.filter(p => p.isActive === true);
+        setActiveProjects(actives);
+        
+        setActiveProject(current => {
+          if (current && actives.find(p => p.id === current.id)) {
+            return actives.find(p => p.id === current.id);
+          }
+          return actives.length > 0 ? actives[0] : (list.length > 0 ? list[0] : null);
+        });
       }
     );
     return () => unsub();
@@ -52,10 +59,8 @@ export default function Home() {
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const handleSelectPlan = (amount) => {
-    const planMap = { 7500: 'Silver', 15000: 'Gold', 30000: 'Platinum' };
-    const planName = planMap[amount] || 'Gold';
-    navigate(`/payment?plan=${planName}`);
+  const handleSelectPlan = (planKey) => {
+    navigate(`/payment?plan=${planKey}&projectId=${activeProject?.id || ''}`);
   };
 
   const nonActiveProjects = projects.filter(p => p.isActive !== true && p.id !== activeProject?.id);
@@ -67,6 +72,30 @@ export default function Home() {
       <Hero onScrollToSection={handleScrollToSection} />
 
       <WhoWeAre />
+
+      {activeProjects.length > 1 && (
+        <section className="pt-10 pb-2 bg-brand-light">
+          <div className="max-w-7xl mx-auto px-4 md:px-8 flex flex-col items-center">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4 font-sora">Select Active Project</h3>
+            <div className="flex gap-3 overflow-x-auto pb-2 w-full justify-center custom-scrollbar">
+              {activeProjects.map(proj => (
+                <button 
+                  key={proj.id}
+                  onClick={() => setActiveProject(proj)}
+                  className={`px-5 py-2.5 rounded-full text-[10px] sm:text-xs font-bold uppercase tracking-wider transition-all shadow-sm flex items-center gap-2 cursor-pointer ${
+                    activeProject?.id === proj.id 
+                    ? 'bg-brand-dark text-[#74E61F] border border-[#74E61F]' 
+                    : 'bg-white text-slate-600 border border-slate-200 hover:border-[#74E61F] hover:text-brand-dark'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${activeProject?.id === proj.id ? 'bg-[#74E61F] animate-pulse' : 'bg-slate-300'}`}></span>
+                  {proj.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       <LiveFundingTracker activeProject={activeProject} />
 
