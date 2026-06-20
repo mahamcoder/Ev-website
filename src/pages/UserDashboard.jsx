@@ -83,7 +83,7 @@ function NotificationItem({ icon, title, desc, time, color }) {
 }
 
 export default function UserDashboard() {
-  const { currentUser, userData, signOut, updateProfileData, changePassword } = useAuth();
+  const { currentUser, userData, signOut, updateProfileData, changePassword, isImpersonating, stopImpersonating } = useAuth();
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState('overview');
@@ -345,7 +345,16 @@ const inputBg = 'bg-[#F7FBF9]';
   const darkMode = false;
 
   return (
-    <div className={`min-h-screen ${bg} ${textPrimary} flex font-inter transition-colors duration-300 relative`}>
+    <div className={`min-h-screen ${bg} ${textPrimary} flex font-inter transition-colors duration-300 relative ${isImpersonating ? 'pt-10' : ''}`}>
+      {isImpersonating && (
+        <div className="bg-amber-500 text-black py-2.5 px-4 text-center text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-4 z-50 fixed top-0 left-0 right-0 shadow-md">
+          <span>You are viewing this dashboard as <strong className="underline">{userData?.name || 'User'}</strong> ({userData?.email})</span>
+          <button onClick={() => { stopImpersonating(); navigate('/admin/dashboard'); }}
+            className="px-3 py-1 bg-black text-white hover:bg-neutral-800 transition-all rounded-lg text-[10px] font-extrabold cursor-pointer">
+            Back to Admin
+          </button>
+        </div>
+      )}
       <div className="absolute top-0 right-0 w-[40%] h-[40%] bg-[#D8F3DC] rounded-full blur-[150px] pointer-events-none opacity-50" />
       <div className="absolute bottom-0 left-[20%] w-[50%] h-[50%] bg-[#B7E4C7] rounded-full blur-[150px] pointer-events-none opacity-30" />
 

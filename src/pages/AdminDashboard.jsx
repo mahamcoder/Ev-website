@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Wallet, Settings, LogOut,
   Menu, X, Check, Trash2, Shield, Search, ArrowLeft,
   Calendar, RefreshCw, AlertCircle, Edit, ArrowUpRight, TrendingUp,
-  PieChart, CheckCircle, Lock, Download, ClipboardList, Activity,
+  PieChart, CheckCircle, Lock, Unlock, Download, ClipboardList, Activity,
   Filter, UserPlus, UserMinus, DollarSign, FileText, Moon, Sun,
   Eye, EyeOff, Copy, Ban, Award, BarChart3, ChevronDown, ChevronUp,
   Clock, List, Mail, Phone, MapPin, ExternalLink, Building2, Plus,
@@ -103,7 +103,7 @@ function MiniDoughnut({ percent, color = '#74E61F', size = 80, label, value }) {
 }
 
 export default function AdminDashboard() {
-  const { currentUser, userData, signOut } = useAuth();
+  const { currentUser, userData, signOut, impersonateUser } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -111,6 +111,12 @@ export default function AdminDashboard() {
       navigate('/dashboard', { replace: true });
     }
   }, [userData, navigate]);
+
+  const handleImpersonateUser = (user) => {
+    if (!user.uid) return;
+    impersonateUser(user.uid);
+    navigate('/dashboard');
+  };
 
   const [activeTab, setActiveTab] = useState('analytics');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -389,30 +395,31 @@ export default function AdminDashboard() {
     finally { setDistLoading(false); }
   };
 
-  const handleLockDistribution = async () => {
+  const handleLockSpecificDistribution = async (distId, distData) => {
     setDistLoading(true);
     try {
       const batch = writeBatch(db);
-      batch.update(doc(db, 'distributions', currentDistDocId), { status: 'locked' });
+      batch.update(doc(db, 'distributions', distId), { status: 'locked' });
       
-      const totalIncome = distPreview.utilityIncome + distPreview.greenIncome + distPreview.loyaltyIncome;
-      batch.set(doc(collection(db, 'companyIncome')), {
+      const totalIncome = (distData.utilityIncome || 0) + (distData.greenIncome || 0) + (distData.loyaltyIncome || 0);
+      const incomeRef = doc(collection(db, 'companyIncome'));
+      batch.set(incomeRef, {
         amount: totalIncome,
-        utilityIncome: distPreview.utilityIncome,
-        greenIncome: distPreview.greenIncome,
-        loyaltyIncome: distPreview.loyaltyIncome,
+        utilityIncome: distData.utilityIncome || 0,
+        greenIncome: distData.greenIncome || 0,
+        loyaltyIncome: distData.loyaltyIncome || 0,
         enteredBy: currentUser.uid,
         enteredAt: serverTimestamp(),
-        distributionId: currentDistDocId,
-        projectId: activeProjectId,
+        distributionId: distId,
+        projectId: distData.projectId || activeProjectId,
         description: 'Multi-Pool Distribution income'
       });
 
-      if (activeProjectId) {
-        batch.set(doc(db, 'projects', activeProjectId), {
-          totalUtilityPool: increment(distPreview.utilityIncome),
-          totalGreenImpactPool: increment(distPreview.greenIncome),
-          totalLoyaltyPool: increment(distPreview.loyaltyIncome),
+      if (distData.projectId) {
+        batch.set(doc(db, 'projects', distData.projectId), {
+          totalUtilityPool: increment(distData.utilityIncome || 0),
+          totalGreenImpactPool: increment(distData.greenIncome || 0),
+          totalLoyaltyPool: increment(distData.loyaltyIncome || 0),
         }, { merge: true });
       }
 
@@ -425,14 +432,14 @@ export default function AdminDashboard() {
         let uShare = 0, gShare = 0, lShare = 0;
         
         if (type === 'Silver') {
-          uShare = distPreview.silverUtilityShare;
+          uShare = distData.silverUtilityShare || 0;
         } else if (type === 'Gold') {
-          uShare = distPreview.goldUtilityShare;
-          gShare = distPreview.goldGreenShare;
+          uShare = distData.goldUtilityShare || 0;
+          gShare = distData.goldGreenShare || 0;
         } else if (type === 'Platinum') {
-          uShare = distPreview.platinumUtilityShare;
-          gShare = distPreview.platinumGreenShare;
-          lShare = distPreview.platinumLoyaltyShare;
+          uShare = distData.platinumUtilityShare || 0;
+          gShare = distData.platinumGreenShare || 0;
+          lShare = distData.platinumLoyaltyShare || 0;
         }
         
         const totalShare = uShare + gShare + lShare;
@@ -449,11 +456,86 @@ export default function AdminDashboard() {
       });
 
       await batch.commit();
-      await logActivity(currentUser?.uid, userData?.name, 'Lock Distribution', `Distribution ${currentDistDocId} locked`);
-      setDistStep(4);
+      await logActivity(currentUser?.uid, userData?.name, 'Lock Distribution', `Distribution ${distId} locked`);
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#74E61F', '#105D3D'] });
-    } catch (err) { alert("Error: " + err.message); }
-    finally { setDistLoading(false); }
+      return true;
+    } catch (err) {
+      alert("Error: " + err.message);
+      return false;
+    } finally {
+      setDistLoading(false);
+    }
+  };
+
+  const handleUnlockSpecificDistribution = async (distId, distData) => {
+    if (!window.confirm('Are you sure you want to unlock this distribution? This will deduct the earnings from all active members and reverse the pool increments.')) return;
+    setDistLoading(true);
+    try {
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'distributions', distId), { status: 'confirmed' });
+
+      const incomeSnap = await getDocs(query(collection(db, 'companyIncome'), where('distributionId', '==', distId)));
+      incomeSnap.forEach(incomeDoc => {
+        batch.delete(doc(db, 'companyIncome', incomeDoc.id));
+      });
+
+      if (distData.projectId) {
+        batch.set(doc(db, 'projects', distData.projectId), {
+          totalUtilityPool: increment(-(distData.utilityIncome || 0)),
+          totalGreenImpactPool: increment(-(distData.greenIncome || 0)),
+          totalLoyaltyPool: increment(-(distData.loyaltyIncome || 0)),
+        }, { merge: true });
+      }
+
+      const activeUsers = activeProjUsers.filter(u => u.membershipStatus === 'Active');
+      activeUsers.forEach(user => {
+        const type = user.membershipType;
+        const earnRef = doc(db, 'userEarnings', user.uid);
+        const userRef = doc(db, 'users', user.uid);
+        
+        let uShare = 0, gShare = 0, lShare = 0;
+        
+        if (type === 'Silver') {
+          uShare = distData.silverUtilityShare || 0;
+        } else if (type === 'Gold') {
+          uShare = distData.goldUtilityShare || 0;
+          gShare = distData.goldGreenShare || 0;
+        } else if (type === 'Platinum') {
+          uShare = distData.platinumUtilityShare || 0;
+          gShare = distData.platinumGreenShare || 0;
+          lShare = distData.platinumLoyaltyShare || 0;
+        }
+        
+        const totalShare = uShare + gShare + lShare;
+        
+        if (totalShare > 0) {
+          batch.set(earnRef, { 
+            utilityPool: increment(-uShare), 
+            greenImpactPool: increment(-gShare),
+            loyaltyPool: increment(-lShare),
+            totalEarnings: increment(-totalShare) 
+          }, { merge: true });
+          batch.set(userRef, { totalEarnings: increment(-totalShare) }, { merge: true });
+        }
+      });
+
+      await batch.commit();
+      await logActivity(currentUser?.uid, userData?.name, 'Unlock Distribution', `Distribution ${distId} unlocked`);
+      return true;
+    } catch (err) {
+      alert("Error: " + err.message);
+      return false;
+    } finally {
+      setDistLoading(false);
+    }
+  };
+
+  const handleLockDistribution = async () => {
+    if (!currentDistDocId || !distPreview) return;
+    const success = await handleLockSpecificDistribution(currentDistDocId, distPreview);
+    if (success) {
+      setDistStep(4);
+    }
   };
 
   // â”€â”€â”€ HANDLERS: COMPANY INCOME â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -956,9 +1038,9 @@ const textSecondary = 'text-gray-700';
                     <tbody className="divide-y ${cardBorder} text-xs font-medium">
                       {filteredUsers.map((user) => (
                         <tr key={user.uid} className={`${darkMode ? 'hover:bg-white/5 text-[#2D3748]' : 'hover:bg-slate-50 text-slate-600'} transition-colors`}>
-                          <td className="p-4">
-                            <span className={`font-bold block ${textPrimary}`}>{user.name}</span>
-                            <span className={`text-[10px] block font-semibold ${textSecondary}`}>{user.email}</span>
+                          <td className="p-4 cursor-pointer text-left group/name" onClick={() => handleImpersonateUser(user)} title="View User Dashboard">
+                            <span className={`font-bold block ${textPrimary} group-hover/name:text-[#74E61F] transition-colors`}>{user.name}</span>
+                            <span className={`text-[10px] block font-semibold ${textSecondary} group-hover/name:text-[#74E61F]/80 transition-colors`}>{user.email}</span>
                           </td>
                           <td className="p-4 font-mono font-bold">{user.phone || 'N/A'}</td>
                           <td className="p-4">
@@ -1315,6 +1397,7 @@ const textSecondary = 'text-gray-700';
                           <th className="p-4 text-right">Loyalty Inc.</th>
                           <th className="p-4 text-right">Total Distributed</th>
                           <th className="p-4 text-center">Status</th>
+                          <th className="p-4 text-center">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y ${cardBorder} text-xs font-medium">
@@ -1330,10 +1413,25 @@ const textSecondary = 'text-gray-700';
                             <td className="p-4 text-center">
                               <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${dist.status === 'confirmed' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>{dist.status}</span>
                             </td>
+                            <td className="p-4 text-center">
+                              <div className="flex justify-center items-center gap-1.5">
+                                {dist.status === 'confirmed' ? (
+                                  <button onClick={() => handleLockSpecificDistribution(dist.id, dist)}
+                                    className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500 hover:text-white border border-emerald-500/20 text-emerald-400 rounded-xl font-bold uppercase text-[10px] tracking-wider transition-all cursor-pointer flex items-center gap-1">
+                                    <Lock className="w-3 h-3" /> Lock
+                                  </button>
+                                ) : (
+                                  <button onClick={() => handleUnlockSpecificDistribution(dist.id, dist)}
+                                    className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500 hover:text-white border border-red-500/20 text-red-400 rounded-xl font-bold uppercase text-[10px] tracking-wider transition-all cursor-pointer flex items-center gap-1">
+                                    <Unlock className="w-3 h-3" /> Unlock
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         ))}
                         {distributionsList.length === 0 && (
-                          <tr><td colSpan="6" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>No distributions yet.</td></tr>
+                          <tr><td colSpan="7" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>No distributions yet.</td></tr>
                         )}
                       </tbody>
                     </table>

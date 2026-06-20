@@ -21,12 +21,12 @@ function LightLoader() {
 
 /** Requires user to be logged in. If requireActive, also requires Paid status. */
 export function ProtectedRoute({ children, requireActive = false }) {
-  const { currentUser, userData, loading, userLoading } = useAuth();
+  const { currentUser, userData, loading, userLoading, isImpersonating } = useAuth();
 
   if (loading) return <Loader text="Verifying session…" />;
   if (!currentUser) return <Navigate to="/signin" replace />;
 
-  if (requireActive && userData?.role !== 'admin' && userData?.paymentStatus !== 'Paid') {
+  if (requireActive && !isImpersonating && userData?.role !== 'admin' && userData?.paymentStatus !== 'Paid') {
     if (userLoading) return <LightLoader />;
     if (!userData?.membershipType) return <Navigate to="/" replace />;
     return <Navigate to="/payment" replace />;
@@ -37,11 +37,13 @@ export function ProtectedRoute({ children, requireActive = false }) {
 
 /** Requires user to be logged in AND have admin role in Firestore. */
 export function AdminRoute({ children }) {
-  const { currentUser, userData, loading, userLoading } = useAuth();
+  const { currentUser, userData, loading, userLoading, isImpersonating, realUserData } = useAuth();
 
   if (loading || userLoading) return <Loader text="Verifying admin privileges…" />;
   if (!currentUser) return <Navigate to="/admin" replace />;
-  if (!userData || userData.role !== 'admin') return <Navigate to="/dashboard" replace />;
+  
+  const effectiveRole = isImpersonating ? realUserData?.role : userData?.role;
+  if (effectiveRole !== 'admin') return <Navigate to="/dashboard" replace />;
 
   return children;
 }

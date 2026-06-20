@@ -21,6 +21,26 @@ export function AuthProvider({ children }) {
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [userLoading, setUserLoading] = useState(true);
+  const [impersonatedUid, setImpersonatedUid] = useState(() => localStorage.getItem('impersonatedUid') || null);
+  const [impersonatedUserData, setImpersonatedUserData] = useState(null);
+
+  useEffect(() => {
+    if (!impersonatedUid) {
+      setImpersonatedUserData(null);
+      return;
+    }
+    const docRef = doc(db, 'users', impersonatedUid);
+    const unsub = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setImpersonatedUserData(docSnap.data());
+      } else {
+        setImpersonatedUserData(null);
+      }
+    }, (error) => {
+      console.error("Error fetching impersonated user data:", error);
+    });
+    return () => unsub();
+  }, [impersonatedUid]);
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
@@ -110,12 +130,25 @@ export function AuthProvider({ children }) {
   }
 
   async function signOutFn() {
+    localStorage.removeItem('impersonatedUid');
+    setImpersonatedUid(null);
     await signOut(auth);
   }
 
+  const impersonateUser = (uid) => {
+    localStorage.setItem('impersonatedUid', uid);
+    setImpersonatedUid(uid);
+  };
+
+  const stopImpersonating = () => {
+    localStorage.removeItem('impersonatedUid');
+    setImpersonatedUid(null);
+  };
+
   async function updateProfileData(name, phone) {
-    if (!currentUser) throw new Error('No authenticated user');
-    const userDocRef = doc(db, 'users', currentUser.uid);
+    const uid = impersonatedUid || currentUser?.uid;
+    if (!uid) throw new Error('No authenticated user');
+    const userDocRef = doc(db, 'users', uid);
     await setDoc(userDocRef, {
       name,
       phone
@@ -123,14 +156,18 @@ export function AuthProvider({ children }) {
   }
 
   async function updateMembershipPlan(planName) {
-    if (!currentUser) throw new Error('No authenticated user');
-    const userDocRef = doc(db, 'users', currentUser.uid);
+    const uid = impersonatedUid || currentUser?.uid;
+    if (!uid) throw new Error('No authenticated user');
+    const userDocRef = doc(db, 'users', uid);
     await setDoc(userDocRef, {
       membershipType: planName
     }, { merge: true });
   }
 
   async function changePassword(newPassword) {
+    if (impersonatedUid) {
+      throw new Error('Password change is disabled during user impersonation.');
+    }
     if (!currentUser) throw new Error('No authenticated user');
     await updatePassword(currentUser, newPassword);
   }
@@ -140,10 +177,10 @@ export function AuthProvider({ children }) {
   }
 
   const value = {
-    currentUser,
-    userData,
+    currentUser: impersonatedUid ? { uid: impersonatedUid, email: impersonatedUserData?.email || '', isImpersonated: true } : currentUser,
+    userData: impersonatedUid ? impersonatedUserData : userData,
     loading,
-    userLoading,
+    userLoading: impersonatedUid ? !impersonatedUserData : userLoading,
     signUp: signUpFn,
     signIn: signInFn,
     signOut: signOutFn,
@@ -151,12 +188,17 @@ export function AuthProvider({ children }) {
     updateMembershipPlan,
     refreshUserData,
     changePassword,
-    resetPassword
+    resetPassword,
+    isImpersonating: !!impersonatedUid,
+    realUser: currentUser,
+    realUserData: userData,
+    impersonateUser,
+    stopImpersonating
   };
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && !(currentUser && userLoading) && children}
+      {!loading && !(currentUser && userLoading) && !(impersonatedUid && !impersonatedUserData) && children}
     </AuthContext.Provider>
   );
 }
