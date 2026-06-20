@@ -26,7 +26,7 @@ export function ProtectedRoute({ children, requireActive = false }) {
   if (loading) return <Loader text="Verifying session…" />;
   if (!currentUser) return <Navigate to="/signin" replace />;
 
-  if (requireActive && !isImpersonating && userData?.role !== 'admin' && userData?.paymentStatus !== 'Paid') {
+  if (requireActive && !isImpersonating && userData?.role !== 'admin' && userData?.paymentStatus !== 'Paid' && userData?.paymentStatus !== 'Pending Verification') {
     if (userLoading) return <LightLoader />;
     if (!userData?.membershipType) return <Navigate to="/" replace />;
     return <Navigate to="/payment" replace />;

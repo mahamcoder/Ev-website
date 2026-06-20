@@ -633,9 +633,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
-import { Shield, AlertCircle, Lock, ArrowRight, CheckCircle, CreditCard, WifiOff, RefreshCw, Smartphone, Building2 } from 'lucide-react';
+import { Shield, AlertCircle, Lock, ArrowRight, CheckCircle, CreditCard, WifiOff, RefreshCw, Smartphone, Building2, Copy, Check, Upload, Clock } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import useRazorpay from '../hooks/useRazorpay';
+import { BANK_DETAILS, CRYPTO_WALLETS } from '../config/paymentConfig';
 
 function useOnlineStatus() {
   const [online, setOnline] = useState(navigator.onLine);
@@ -700,6 +701,103 @@ export default function Payment() {
   const [transactionDetails, setTransactionDetails] = useState(null);
   const [loadingMessage, setLoadingMessage] = useState('');
 
+  const [paymentMethod, setPaymentMethod] = useState('razorpay');
+  const [selectedWallet, setSelectedWallet] = useState(CRYPTO_WALLETS[0]);
+  const [paymentProofUrl, setPaymentProofUrl] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [copiedField, setCopiedField] = useState(null);
+
+  const handleCopy = (text, field) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const handleImageUpload = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    setErrorMessage('');
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', 'Evwebsite');
+    
+    try {
+      const response = await fetch('https://api.cloudinary.com/v1_1/ddiryhexg/image/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setPaymentProofUrl(data.secure_url);
+      } else {
+        throw new Error(data.error?.message || 'Failed to upload image');
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMessage('Image upload failed: ' + err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handlePlaceOrder = async () => {
+    setErrorMessage('');
+    
+    if (!currentUser) {
+      navigate(`/signin?redirect=/payment?plan=${selectedPlan}`);
+      return;
+    }
+    
+    if (!paymentProofUrl) {
+      setErrorMessage('Please upload a screenshot of your payment proof before placing the order.');
+      return;
+    }
+    
+    setStatus('processing');
+    
+    try {
+      const { doc: fd, setDoc: sd, collection: cl, addDoc: ad, serverTimestamp: st } = await import('firebase/firestore');
+      
+      const manualId = (paymentMethod === 'bank_transfer' ? 'BANK_' : 'CRYPTO_') + Date.now();
+      let activeProjId = activeProject?.id || '';
+      
+      await ad(cl(db, 'payments'), {
+        userId: currentUser.uid,
+        userName: userData?.name || 'User',
+        userEmail: currentUser.email,
+        plan: selectedPlan,
+        amount: price,
+        transactionId: manualId,
+        status: 'pending_verification',
+        paymentMethod: paymentMethod === 'bank_transfer' ? 'Bank Transfer' : 'Crypto',
+        paymentProofUrl: paymentProofUrl,
+        projectId: activeProjId,
+        createdAt: st()
+      });
+      
+      await sd(fd(db, 'users', currentUser.uid), {
+        paymentStatus: 'Pending Verification',
+        membershipType: selectedPlan,
+        projectId: activeProjId
+      }, { merge: true });
+
+      setTransactionDetails({
+        id: manualId,
+        amount: price,
+        date: new Date().toLocaleDateString('en-IN', {
+          year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        })
+      });
+      
+      setStatus('pending_success');
+    } catch (err) {
+      console.error(err);
+      setErrorMessage('Failed to place order: ' + err.message);
+      setStatus('idle');
+    }
+  };
+
   useEffect(() => {
     if (!currentUser) {
       navigate(`/signin?redirect=/payment?plan=${selectedPlan}`);
@@ -724,11 +822,24 @@ export default function Payment() {
       particleCount: 150, spread: 80, origin: { y: 0.6 },
       colors: ['#042A1d', '#105D3D', '#74E61F', '#22C55E']
     });
+  }, [price]);
 
-    setTimeout(() => {
-      navigate('/dashboard');
-    }, 1500);
-  }, [price, navigate]);
+  useEffect(() => {
+    // Razorpay / Card success: navigate to dashboard
+    if (status === 'success') {
+      const timer = setTimeout(() => {
+        navigate('/dashboard');
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+    // Bank Transfer / Crypto: also redirect immediately after order placed
+    if (status === 'pending_success') {
+      const timer = setTimeout(() => {
+        navigate('/dashboard');
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [status, navigate]);
 
   const handleRazorpayPayment = async () => {
     setErrorMessage('');
@@ -767,7 +878,6 @@ export default function Payment() {
         order_id: orderData.id,
         handler: async function (response) {
           try {
-            // ✅ FIXED: localhost ki jagah VITE_API_URL use ho raha hai
             const verifyRes = await fetch(`${import.meta.env.VITE_API_URL}/api/verify-payment`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -785,6 +895,42 @@ export default function Payment() {
             const verifyData = await verifyRes.json();
             if (verifyData.success) {
               console.log('✅ Frontend: Transaction Successful!', response);
+
+              // ✅ FIX: Save payment to Firestore from frontend so Admin tab shows it
+              try {
+                const { doc: fd, setDoc: sd, collection: cl, addDoc: ad, serverTimestamp: st, increment: inc } = await import('firebase/firestore');
+                const activeProjId = activeProject?.id || '';
+
+                if (activeProjId) {
+                  await sd(fd(db, 'projects', activeProjId), {
+                    collectedAmount: inc(price),
+                    totalMembers: inc(1)
+                  }, { merge: true });
+                }
+
+                await ad(cl(db, 'payments'), {
+                  userId: currentUser.uid,
+                  userName: userData?.name || 'User',
+                  userEmail: currentUser.email,
+                  plan: selectedPlan,
+                  amount: price,
+                  transactionId: response.razorpay_payment_id,
+                  status: 'Success',
+                  paymentMethod: 'Razorpay',
+                  projectId: activeProjId,
+                  createdAt: st()
+                });
+
+                await sd(fd(db, 'users', currentUser.uid), {
+                  membershipStatus: 'Active',
+                  paymentStatus: 'Paid',
+                  membershipType: selectedPlan,
+                  projectId: activeProjId
+                }, { merge: true });
+              } catch (fsErr) {
+                console.error('⚠️ Firestore save failed after Razorpay success:', fsErr);
+              }
+
               recordPayment(response.razorpay_payment_id);
             } else {
               console.error('❌ Frontend: Transaction verification failed!', verifyData);
@@ -908,7 +1054,57 @@ export default function Payment() {
       )}
 
       <AnimatePresence mode="wait">
-        {status === 'success' ? (
+        {status === 'pending_success' ? (
+          <motion.div
+            key="pending_success"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+            className="w-full max-w-md glassmorphism-dark rounded-[32px] p-8 text-center border border-white/10 relative z-10 shadow-2xl"
+          >
+            <div className="flex justify-center mb-6">
+              <Clock className="w-20 h-20 text-yellow-400" />
+            </div>
+            <h2 className="text-2xl md:text-3xl font-extrabold font-sora text-white mb-2">
+              Verification Pending
+            </h2>
+            <p className="text-slate-300 text-xs md:text-sm font-semibold mb-6">
+              Order Placed Successfully
+            </p>
+
+            <div className="bg-[#0B3022] rounded-2xl p-5 mb-6 text-left border border-white/5 space-y-3">
+              <div className="flex justify-between text-xs font-semibold">
+                <span className="text-slate-400">Transaction ID:</span>
+                <span className="text-slate-200 font-mono">{transactionDetails?.id}</span>
+              </div>
+              <div className="flex justify-between text-xs font-semibold">
+                <span className="text-slate-400">Plan Selected:</span>
+                <span className="text-[#74E61F]">{selectedPlan} Plan</span>
+              </div>
+              <div className="flex justify-between text-xs font-semibold">
+                <span className="text-slate-400">Amount:</span>
+                <span className="text-slate-200">{formatRupee(transactionDetails?.amount)}</span>
+              </div>
+              <div className="flex justify-between text-xs font-semibold">
+                <span className="text-slate-400">Payment Date:</span>
+                <span className="text-slate-200">{transactionDetails?.date}</span>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-300 text-xs font-medium mb-8 text-left">
+              Your payment proof is under verification. Our admin will review and approve it within 24 hours.
+            </div>
+
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => navigate('/dashboard')}
+              className="w-full py-4 rounded-2xl bg-[#74E61F] text-[#042A1d] font-sora font-bold uppercase tracking-wider hover:bg-white hover:text-black transition-all duration-300 shadow-md cursor-pointer text-xs md:text-sm"
+            >
+              Go to Dashboard
+            </motion.button>
+          </motion.div>
+        ) : status === 'success' ? (
           <motion.div
             key="success"
             initial={{ opacity: 0, scale: 0.9 }}
@@ -1015,8 +1211,8 @@ export default function Payment() {
               />
             ) : (
               <div className="lg:col-span-7 glassmorphism-dark rounded-[32px] p-8 md:p-10 border border-white/10 shadow-2xl flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center space-x-3 mb-8">
+                <div className="space-y-6">
+                  <div className="flex items-center space-x-3 mb-4">
                     <div className="w-10 h-10 rounded-2xl bg-[#74E61F]/10 flex items-center justify-center border border-[#74E61F]/20">
                       <Lock className="w-5 h-5 text-[#74E61F]" />
                     </div>
@@ -1034,7 +1230,7 @@ export default function Payment() {
                     <motion.div
                       initial={{ opacity: 0, y: -10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-200 text-xs font-semibold flex items-start space-x-2"
+                      className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-200 text-xs font-semibold flex items-start space-x-2"
                     >
                       <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                       <div className="flex-1">{errorMessage}</div>
@@ -1042,58 +1238,347 @@ export default function Payment() {
                   )}
 
                   {loadingMessage && (
-                    <div className="mb-6 p-4 rounded-2xl bg-[#74E61F]/5 border border-[#74E61F]/10 text-[#74E61F] text-xs font-semibold flex items-center space-x-2">
+                    <div className="p-4 rounded-2xl bg-[#74E61F]/5 border border-[#74E61F]/10 text-[#74E61F] text-xs font-semibold flex items-center space-x-2">
                       <div className="w-4 h-4 border-2 border-[#74E61F] border-t-transparent rounded-full animate-spin" />
                       <span>{loadingMessage}</span>
                     </div>
                   )}
 
-                  <div className="space-y-5">
-                    <div className="p-5 bg-[#0B3022]/40 rounded-2xl border border-white/5 space-y-3">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-slate-400">Plan</span>
-                        <span className="text-white font-bold">{selectedPlan}</span>
-                      </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-slate-400">Amount</span>
-                        <span className="text-[#74E61F] font-bold font-sora text-base">
-                          {formatRupee(price)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2 text-[10px] text-slate-500 font-semibold">
-                      <Shield className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Secured with 256-bit SSL encryption</span>
-                    </div>
+                  {/* Payment Method Selector Dropdown */}
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-400 mb-1.5 block">
+                      Payment Method
+                    </label>
+                    <select
+                      value={paymentMethod}
+                      onChange={(e) => {
+                        setPaymentMethod(e.target.value);
+                        setErrorMessage('');
+                      }}
+                      className="w-full px-4 py-3 rounded-xl bg-[#0B3022]/60 border border-white/10 text-white text-sm font-medium focus:outline-none focus:border-[#74E61F] transition-colors cursor-pointer"
+                    >
+                      <option value="razorpay">Razorpay (UPI / card / netbanking)</option>
+                      <option value="bank_transfer">Bank Transfer</option>
+                      <option value="crypto">Crypto</option>
+                    </select>
                   </div>
+
+                  {paymentMethod === 'razorpay' && (
+                    <div className="space-y-5">
+                      <div className="p-5 bg-[#0B3022]/40 rounded-2xl border border-white/5 space-y-3">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-400">Plan</span>
+                          <span className="text-white font-bold">{selectedPlan}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-400">Amount</span>
+                          <span className="text-[#74E61F] font-bold font-sora text-base">
+                            {formatRupee(price)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2 text-[10px] text-slate-500 font-semibold">
+                        <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Secured with 256-bit SSL encryption</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {paymentMethod === 'bank_transfer' && (
+                    <div className="space-y-5">
+                      <div className="p-5 bg-[#0B3022]/60 rounded-2xl border border-white/10 space-y-4">
+                        <h5 className="text-xs font-bold uppercase text-[#74E61F]">Bank Account Details</h5>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {[
+                            { label: "Account Holder", value: BANK_DETAILS.accountHolder, id: "accHolder" },
+                            { label: "Account Number", value: BANK_DETAILS.accountNumber, id: "accNum" },
+                            { label: "IFSC Code", value: BANK_DETAILS.ifsc, id: "ifsc" },
+                            { label: "Branch", value: BANK_DETAILS.branch, id: "branch" },
+                            { label: "Account Type", value: BANK_DETAILS.accountType, id: "accType" },
+                          ].map((item) => (
+                            <div key={item.id} className="flex flex-col space-y-1">
+                              <span className="text-[10px] text-slate-400 uppercase font-semibold">{item.label}</span>
+                              <div className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2 border border-white/5">
+                                <span className="text-xs font-semibold text-slate-200 select-all font-mono">{item.value}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(item.value, item.id)}
+                                  className="text-slate-400 hover:text-[#74E61F] p-1 transition-colors cursor-pointer"
+                                >
+                                  {copiedField === item.id ? <Check className="w-3.5 h-3.5 text-[#74E61F]" /> : <Copy className="w-3.5 h-3.5" />}
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Payment Proof Upload Container */}
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-bold uppercase text-slate-400 block">
+                          Upload Payment Proof
+                        </label>
+                        
+                        {!paymentProofUrl ? (
+                          <div
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              setIsDragging(true);
+                            }}
+                            onDragLeave={() => setIsDragging(false)}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              setIsDragging(false);
+                              if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                                handleImageUpload(e.dataTransfer.files[0]);
+                              }
+                            }}
+                            className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all cursor-pointer relative ${
+                              isDragging
+                                ? "border-[#74E61F] bg-[#74E61F]/5"
+                                : "border-white/10 hover:border-white/20 bg-white/5"
+                            }`}
+                          >
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                if (e.target.files && e.target.files[0]) {
+                                  handleImageUpload(e.target.files[0]);
+                                }
+                              }}
+                              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                              disabled={uploading}
+                            />
+                            <div className="flex flex-col items-center space-y-2">
+                              {uploading ? (
+                                <>
+                                  <div className="w-8 h-8 border-2 border-[#74E61F] border-t-transparent rounded-full animate-spin"></div>
+                                  <span className="text-xs text-slate-300">Uploading proof to Cloudinary...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-slate-400">
+                                    <Upload className="w-5 h-5 text-slate-400" />
+                                  </div>
+                                  <span className="text-xs font-bold text-white">Drag & drop your screenshot here</span>
+                                  <span className="text-[10px] text-slate-400">or click to browse from device (JPEG, PNG)</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-[#0B3022]/60 p-4 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="w-12 h-12 rounded-lg bg-cover bg-center border border-white/10" style={{ backgroundImage: `url(${paymentProofUrl})` }} />
+                              <div>
+                                <span className="text-xs font-bold text-white block">Payment Proof Uploaded</span>
+                                <a
+                                  href={paymentProofUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[10px] text-[#74E61F] hover:underline"
+                                >
+                                  View Full Image
+                                </a>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setPaymentProofUrl("")}
+                              className="px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-[10px] font-bold uppercase transition-all cursor-pointer"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {paymentMethod === 'crypto' && (
+                    <div className="space-y-5">
+                      <div className="space-y-4">
+                        <label className="text-[10px] font-bold uppercase text-slate-400 block">Select Crypto Currency</label>
+                        <div className="grid grid-cols-2 gap-4">
+                          {CRYPTO_WALLETS.map((wallet) => {
+                            const active = selectedWallet.symbol === wallet.symbol;
+                            return (
+                              <button
+                                key={wallet.symbol}
+                                type="button"
+                                onClick={() => setSelectedWallet(wallet)}
+                                className={`flex items-center gap-3 p-4 rounded-2xl border transition-all cursor-pointer text-left ${
+                                  active
+                                    ? "bg-[#74E61F]/10 border-[#74E61F]"
+                                    : "bg-white/5 border-white/10 hover:border-white/20"
+                                }`}
+                              >
+                                <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center font-bold text-xs">
+                                  {wallet.symbol}
+                                </div>
+                                <div>
+                                  <div className="text-xs font-bold text-white">{wallet.name}</div>
+                                  <div className="text-[10px] text-slate-400">{wallet.symbol}</div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <div className="p-5 bg-[#0B3022]/60 rounded-2xl border border-white/10 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold uppercase text-[#74E61F]">
+                              {selectedWallet.name} Address
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2 border border-white/5">
+                            <span className="text-xs font-semibold text-slate-200 select-all font-mono break-all pr-2">
+                              {selectedWallet.address}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(selectedWallet.address, 'crypto_address')}
+                              className="text-slate-400 hover:text-[#74E61F] p-1 transition-colors cursor-pointer shrink-0"
+                            >
+                              {copiedField === 'crypto_address' ? <Check className="w-3.5 h-3.5 text-[#74E61F]" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Payment Proof Upload Container */}
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-bold uppercase text-slate-400 block">
+                          Upload Payment Proof
+                        </label>
+                        
+                        {!paymentProofUrl ? (
+                          <div
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              setIsDragging(true);
+                            }}
+                            onDragLeave={() => setIsDragging(false)}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              setIsDragging(false);
+                              if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                                handleImageUpload(e.dataTransfer.files[0]);
+                              }
+                            }}
+                            className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all cursor-pointer relative ${
+                              isDragging
+                                ? "border-[#74E61F] bg-[#74E61F]/5"
+                                : "border-white/10 hover:border-white/20 bg-white/5"
+                            }`}
+                          >
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                if (e.target.files && e.target.files[0]) {
+                                  handleImageUpload(e.target.files[0]);
+                                }
+                              }}
+                              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                              disabled={uploading}
+                            />
+                            <div className="flex flex-col items-center space-y-2">
+                              {uploading ? (
+                                <>
+                                  <div className="w-8 h-8 border-2 border-[#74E61F] border-t-transparent rounded-full animate-spin"></div>
+                                  <span className="text-xs text-slate-300">Uploading proof to Cloudinary...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-slate-400">
+                                    <Upload className="w-5 h-5 text-slate-400" />
+                                  </div>
+                                  <span className="text-xs font-bold text-white">Drag & drop your screenshot here</span>
+                                  <span className="text-[10px] text-slate-400">or click to browse from device (JPEG, PNG)</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-[#0B3022]/60 p-4 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="w-12 h-12 rounded-lg bg-cover bg-center border border-white/10" style={{ backgroundImage: `url(${paymentProofUrl})` }} />
+                              <div>
+                                <span className="text-xs font-bold text-white block">Payment Proof Uploaded</span>
+                                <a
+                                  href={paymentProofUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[10px] text-[#74E61F] hover:underline"
+                                >
+                                  View Full Image
+                                </a>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setPaymentProofUrl("")}
+                              className="px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-[10px] font-bold uppercase transition-all cursor-pointer"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-3 mt-6">
-                  <motion.button
-                    whileHover={online ? { scale: 1.01 } : {}}
-                    whileTap={online ? { scale: 0.99 } : {}}
-                    onClick={handleRazorpayPayment}
-                    disabled={status === 'processing' || !online}
-                    className="w-full py-4 rounded-2xl bg-[#74E61F] text-[#042A1d] font-sora font-bold uppercase tracking-wider hover:bg-white hover:text-black transition-all duration-300 shadow-md cursor-pointer flex items-center justify-center space-x-2 text-xs md:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {status === 'processing' ? (
-                      <>
-                        <div className="w-5 h-5 border-2 border-[#042A1d] border-t-transparent rounded-full animate-spin" />
-                        <span>Processing...</span>
-                      </>
-                    ) : !online ? (
-                      <>
-                        <WifiOff className="w-4 h-4" />
-                        <span>No Internet Connection</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Pay {formatRupee(price)}</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </>
-                    )}
-                  </motion.button>
+                  {paymentMethod === 'razorpay' ? (
+                    <motion.button
+                      whileHover={online ? { scale: 1.01 } : {}}
+                      whileTap={online ? { scale: 0.99 } : {}}
+                      onClick={handleRazorpayPayment}
+                      disabled={status === 'processing' || !online}
+                      className="w-full py-4 rounded-2xl bg-[#74E61F] text-[#042A1d] font-sora font-bold uppercase tracking-wider hover:bg-white hover:text-black transition-all duration-300 shadow-md cursor-pointer flex items-center justify-center space-x-2 text-xs md:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {status === 'processing' ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-[#042A1d] border-t-transparent rounded-full animate-spin" />
+                          <span>Processing...</span>
+                        </>
+                      ) : !online ? (
+                        <>
+                          <WifiOff className="w-4 h-4" />
+                          <span>No Internet Connection</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Pay {formatRupee(price)}</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </motion.button>
+                  ) : (
+                    <motion.button
+                      whileHover={{ scale: 1.01 }}
+                      whileTap={{ scale: 0.99 }}
+                      onClick={handlePlaceOrder}
+                      disabled={status === 'processing' || uploading}
+                      className="w-full py-4 rounded-2xl bg-[#74E61F] text-[#042A1d] font-sora font-bold uppercase tracking-wider hover:bg-white hover:text-black transition-all duration-300 shadow-md cursor-pointer flex items-center justify-center space-x-2 text-xs md:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {status === 'processing' ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-[#042A1d] border-t-transparent rounded-full animate-spin" />
+                          <span>Placing Order...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Place Order</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </motion.button>
+                  )}
                 </div>
 
                 <div className="mt-6 text-center text-slate-500 text-[10px] font-medium">

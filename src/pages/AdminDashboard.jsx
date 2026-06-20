@@ -198,21 +198,22 @@ export default function AdminDashboard() {
       (snapshot) => setActivityLogs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })))
     );
 
-    const fetchPayments = async () => {
-      setLoadingData(true);
-      try {
-        const q = query(collection(db, 'payments'), orderBy('createdAt', 'desc'));
-        const pSnap = await getDocs(q);
-        setPaymentsList(pSnap.docs.map(d => {
+    const unsubPayments = onSnapshot(
+      query(collection(db, 'payments'), orderBy('createdAt', 'desc')),
+      (snapshot) => {
+        setPaymentsList(snapshot.docs.map(d => {
           const data = d.data();
           return { id: d.id, ...data, date: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : new Date().toISOString() };
         }));
-      } catch (err) { console.error(err); }
-      finally { setLoadingData(false); }
-    };
-    fetchPayments();
+        setLoadingData(false);
+      },
+      (err) => {
+        console.error(err);
+        setLoadingData(false);
+      }
+    );
 
-    return () => { unsubUsers(); unsubProjects(); unsubDist(); unsubIncome(); unsubWaitlist(); unsubLogs(); };
+    return () => { unsubUsers(); unsubProjects(); unsubDist(); unsubIncome(); unsubWaitlist(); unsubLogs(); unsubPayments(); };
   }, []);
 
   // ─── COMPUTED STATS ────────────────────────────────────────────────────────
@@ -760,6 +761,54 @@ export default function AdminDashboard() {
     logActivity(currentUser?.uid, userData?.name, 'Export Payments', 'Exported payments CSV');
   };
 
+  const handleApprovePayment = async (tx) => {
+    if (!window.confirm(`Are you sure you want to approve payment ${tx.transactionId}?`)) return;
+    try {
+      const batch = writeBatch(db);
+      
+      batch.update(doc(db, 'payments', tx.id), { status: 'Success' });
+      
+      const pId = tx.projectId || activeProjectId;
+      batch.set(doc(db, 'users', tx.userId), {
+        membershipStatus: 'Active',
+        paymentStatus: 'Paid',
+        membershipType: tx.plan,
+        projectId: pId
+      }, { merge: true });
+      
+      if (pId) {
+        batch.set(doc(db, 'projects', pId), {
+          collectedAmount: increment(tx.amount || 0),
+          totalMembers: increment(1)
+        }, { merge: true });
+      }
+      
+      await batch.commit();
+      await logActivity(currentUser?.uid, userData?.name, 'Approve Payment', `Approved manual payment ${tx.transactionId} for ${tx.userEmail}`);
+      confetti({ particleCount: 50, spread: 50, colors: ['#74E61F'] });
+    } catch (err) {
+      alert('Error approving payment: ' + err.message);
+    }
+  };
+
+  const handleRejectPayment = async (tx) => {
+    if (!window.confirm(`Are you sure you want to reject payment ${tx.transactionId}?`)) return;
+    try {
+      const batch = writeBatch(db);
+      
+      batch.update(doc(db, 'payments', tx.id), { status: 'Failed' });
+      
+      batch.set(doc(db, 'users', tx.userId), {
+        paymentStatus: 'Failed'
+      }, { merge: true });
+      
+      await batch.commit();
+      await logActivity(currentUser?.uid, userData?.name, 'Reject Payment', `Rejected manual payment ${tx.transactionId} for ${tx.userEmail}`);
+    } catch (err) {
+      alert('Error rejecting payment: ' + err.message);
+    }
+  };
+
   const handleExportDistributions = () => {
     exportToCSV(
       distributionsList.map(d => ({
@@ -1154,38 +1203,84 @@ const textSecondary = 'text-gray-700';
                   </div>
                 </div>
 
-                <div className="overflow-x-auto rounded-2xl border ${cardBorder} ${darkMode ? 'bg-[#F7FBF9]' : 'bg-white'}">
+                <div className={`overflow-x-auto rounded-2xl border ${cardBorder} ${darkMode ? 'bg-[#F7FBF9]' : 'bg-white'}`}>
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className={`border-b ${cardBorder} text-[9px] font-extrabold uppercase ${textSecondary} tracking-wider`}>
                         <th className="p-4">Transaction ID</th>
                         <th className="p-4">User</th>
                         <th className="p-4">Package</th>
+                        <th className="p-4">Method</th>
                         <th className="p-4 text-right">Amount</th>
                         <th className="p-4">Date</th>
                         <th className="p-4 text-center">Status</th>
+                        <th className="p-4 text-center">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y ${cardBorder} text-xs font-medium">
+                    <tbody className={`divide-y ${cardBorder} text-xs font-medium`}>
                       {filteredPayments.map((tx) => (
                         <tr key={tx.id} className={`${darkMode ? 'hover:bg-white/5 text-[#2D3748]' : 'hover:bg-slate-50 text-slate-600'} transition-colors`}>
-                          <td className="p-4 font-mono font-bold uppercase ${textPrimary}">{tx.transactionId}</td>
+                          <td className={`p-4 font-mono font-bold uppercase ${textPrimary}`}>{tx.transactionId}</td>
                           <td className="p-4">
                             <span className={`font-bold block ${textPrimary}`}>{tx.userName}</span>
                             <span className={`text-[10px] block font-semibold ${textSecondary}`}>{tx.userEmail}</span>
                           </td>
                           <td className="p-4 font-bold">{tx.plan}</td>
+                          <td className={`p-4 font-bold ${textSecondary}`}>{tx.paymentMethod || 'Razorpay'}</td>
                           <td className={`p-4 text-right text-[#74E61F] font-sora font-semibold`}>{formatRupee(tx.amount)}</td>
                           <td className={`p-4 ${textSecondary}`}>
                             {new Date(tx.date).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           </td>
                           <td className="p-4 text-center">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${tx.status === 'Success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>{tx.status}</span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              tx.status === 'Success'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                : tx.status === 'pending_verification'
+                                ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+                                : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            }`}>
+                              {tx.status === 'pending_verification' ? 'Pending Verification' : tx.status}
+                            </span>
+                          </td>
+                          <td className="p-4 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              {tx.status === 'pending_verification' ? (
+                                <>
+                                  {tx.paymentProofUrl && (
+                                    <a
+                                      href={tx.paymentProofUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="p-1.5 bg-[#74E61F]/10 hover:bg-[#74E61F] hover:text-[#042A1d] text-[#74E61F] rounded-lg transition-all border border-[#74E61F]/20 flex items-center justify-center cursor-pointer"
+                                      title="View Proof"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                    </a>
+                                  )}
+                                  <button
+                                    onClick={() => handleApprovePayment(tx)}
+                                    className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500 hover:text-white text-emerald-400 rounded-lg transition-all border border-emerald-500/20 flex items-center justify-center cursor-pointer"
+                                    title="Approve"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleRejectPayment(tx)}
+                                    className="p-1.5 bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 rounded-lg transition-all border border-red-500/20 flex items-center justify-center cursor-pointer"
+                                    title="Reject"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              ) : (
+                                <span className={`text-[10px] ${textSecondary}`}>—</span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
                       {filteredPayments.length === 0 && (
-                        <tr><td colSpan="6" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>No transactions found.</td></tr>
+                        <tr><td colSpan="8" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>No transactions found.</td></tr>
                       )}
                     </tbody>
                   </table>
