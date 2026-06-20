@@ -230,7 +230,7 @@ export default function AdminDashboard() {
   const activeProjectCapacity = activeProject?.totalCapacity || 0;
   const activeProjectPercent = activeProjectCapacity > 0 ? Math.min((activeProjectCollected / activeProjectCapacity) * 100, 100) : 0;
 
-  // Show only members/payments related to the active project
+  // ── Project-scoped data (used for analytics stats & charts only) ──────────
   const activeProjUsers = usersList.filter(u => {
     const pId = u.projectId || (projectsList[0]?.id || '');
     return pId === activeProjectId;
@@ -240,6 +240,7 @@ export default function AdminDashboard() {
     return pId === activeProjectId;
   });
 
+  // Analytics stats stay project-scoped
   const totalUsers = activeProjUsers.length;
   const activeMembers = activeProjUsers.filter(u => u.membershipStatus === 'Active').length;
   const inactiveMembers = activeProjUsers.filter(u => u.membershipStatus !== 'Active').length;
@@ -257,8 +258,13 @@ export default function AdminDashboard() {
     { label: 'Platinum', value: platinumMembers }
   ];
 
+  // ── Member Management table: ALL registered users (including new signups) ──
+  // New signups have projectId = null until they pay, so we must NOT filter by
+  // projectId here — otherwise fresh registrations are invisible to the admin.
+  const allNonAdminUsers = usersList.filter(u => u.role !== 'admin');
+
   // ─── FILTERED DATA ─────────────────────────────────────────────────────────
-  const filteredUsers = activeProjUsers.filter(u => {
+  const filteredUsers = allNonAdminUsers.filter(u => {
     const matchesSearch = u.name?.toLowerCase().includes(userSearch.toLowerCase()) ||
       u.email?.toLowerCase().includes(userSearch.toLowerCase()) ||
       u.phone?.includes(userSearch);
@@ -1095,7 +1101,12 @@ const textSecondary = 'text-gray-700';
                           <td className="p-4">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${user.role === 'admin' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-slate-500/10 text-slate-400 border border-slate-500/20'}`}>{user.role}</span>
                           </td>
-                          <td className="p-4 font-bold">{user.membershipType || 'None'}</td>
+                          <td className="p-4 font-bold">
+                            <span>{user.membershipType || 'None'}</span>
+                            {!user.projectId && (
+                              <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20 align-middle">NEW</span>
+                            )}
+                          </td>
                           <td className="p-4">
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${user.membershipStatus === 'Active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>{user.membershipStatus || 'Pending'}</span>
                           </td>
