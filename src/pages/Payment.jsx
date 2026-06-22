@@ -628,7 +628,7 @@
 // }
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate, useSearchParams } from '../router';
+import { useNavigate, useSearchParams, useLocation } from '../router';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
@@ -658,28 +658,63 @@ export default function Payment() {
   const isRazorpayLoaded = useRazorpay();
 
   const [activeProject, setActiveProject] = useState(null);
+  const [allActiveProjects, setAllActiveProjects] = useState([]);
+  // 'loading' | 'project_select' | 'plan_select' | 'checkout'
+  const [setupStep, setSetupStep] = useState('loading');
+
+  // ── Router state (from Home pricing card click) takes priority over URL params ──
+  const routerLocation = useLocation();
+  const routerState = routerLocation.state || null; // { planName, planPrice, projectId }
 
   const urlProjectId = searchParams.get('projectId');
   const planParam = searchParams.get('plan');
-  const selectedPlan = planParam || userData?.membershipType || 'Gold';
+
+  // Merged: router state wins, URL params are the fallback (for direct links / back-compat)
+  const incomingProjectId = routerState?.projectId || urlProjectId || null;
+  const incomingPlan = routerState?.planName || planParam || null;
+
+  const [selectedPlan, setSelectedPlan] = useState(incomingPlan || 'Gold');
 
   useEffect(() => {
     const unsub = onSnapshot(
       query(collection(db, 'projects')),
       (snapshot) => {
         const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        let active = null;
-        if (urlProjectId) {
-          active = list.find(p => p.id === urlProjectId);
+        const actives = list.filter(p => p.isActive === true || p.status === 'active');
+        setAllActiveProjects(actives);
+
+        if (incomingProjectId && incomingPlan) {
+          // Came from Home pricing card (router state) or URL with both project + plan → skip to checkout
+          const proj = list.find(p => p.id === incomingProjectId) || actives[0] || list[0] || null;
+          setActiveProject(proj);
+          setSelectedPlan(incomingPlan);
+          setSetupStep('checkout');
+        } else if (actives.length === 0) {
+          // No active projects, fall back to first project in list
+          const proj = list[0] || null;
+          setActiveProject(proj);
+          setSetupStep('plan_select');
+        } else if (actives.length === 1) {
+          // Only 1 active project → auto-select silently, go straight to plan selector
+          setActiveProject(actives[0]);
+          setSetupStep('plan_select');
+        } else {
+          // Multiple active projects
+          if (incomingProjectId) {
+            // Project hint present → use it, skip project selector
+            const proj = actives.find(p => p.id === incomingProjectId) || actives[0];
+            setActiveProject(proj);
+            setSetupStep('plan_select');
+          } else {
+            // No hint → show project selector first
+            setSetupStep('project_select');
+          }
         }
-        if (!active) {
-          active = list.find(p => p.isActive === true) || list[0] || null;
-        }
-        setActiveProject(active);
       }
     );
     return () => unsub();
-  }, [urlProjectId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingProjectId, incomingPlan]);
 
   const projectPricing = {
     Silver: activeProject?.silverPrice || 7500,
@@ -1148,6 +1183,164 @@ export default function Payment() {
               </p>
             </div>
           </motion.div>
+        ) : setupStep === 'loading' ? (
+          <motion.div
+            key="setup_loading"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex items-center justify-center relative z-10 my-8"
+          >
+            <div className="glassmorphism-dark rounded-[32px] p-12 border border-white/10 shadow-2xl text-center">
+              <div className="w-12 h-12 border-2 border-[#74E61F] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-slate-400 text-sm font-semibold">Loading projects...</p>
+            </div>
+          </motion.div>
+
+        ) : setupStep === 'project_select' ? (
+          <motion.div
+            key="project_select"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="w-full max-w-3xl relative z-10 my-8 px-2"
+          >
+            <div className="glassmorphism-dark rounded-[32px] p-8 border border-white/10 shadow-2xl">
+              <img src="/stoshi_logo.webp" alt="Stoshi" className="h-10 w-auto mb-8" />
+              <span className="text-[11px] font-extrabold tracking-widest text-[#74E61F] uppercase block mb-2">
+                STEP 1 OF 2
+              </span>
+              <h3 className="text-2xl font-extrabold font-sora mb-2 tracking-tight">Choose a Project</h3>
+              <p className="text-xs text-slate-400 mb-8">
+                Select the project you'd like to fund before choosing your membership plan.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {allActiveProjects.map(proj => {
+                  const total = proj.totalCapacity || 0;
+                  const filled = proj.collectedAmount || 0;
+                  const fundingPct = total > 0 ? Math.min((filled / total) * 100, 100) : 0;
+                  return (
+                    <button
+                      key={proj.id}
+                      onClick={() => {
+                        setActiveProject(proj);
+                        setSetupStep('plan_select');
+                      }}
+                      className="flex flex-col p-5 rounded-2xl transition-all text-left cursor-pointer border-2 border-white/10 bg-white/5 hover:border-[#74E61F]/60 hover:bg-[#74E61F]/5 group"
+                    >
+                      <div className="flex items-center gap-1.5 bg-[#74E61F]/20 text-[#74E61F] text-[9px] font-extrabold tracking-wider px-2 py-0.5 rounded-full uppercase border border-[#74E61F]/20 mb-3 w-fit">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#74E61F] animate-pulse" />
+                        LIVE
+                      </div>
+                      <span className="text-base font-black font-sora text-white mb-1 group-hover:text-[#74E61F] transition-colors">
+                        {proj.name}
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        {fundingPct.toFixed(0)}% Funded
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </motion.div>
+
+        ) : setupStep === 'plan_select' ? (
+          <motion.div
+            key="plan_select"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="w-full max-w-4xl relative z-10 my-8 px-2"
+          >
+            <div className="glassmorphism-dark rounded-[32px] p-8 border border-white/10 shadow-2xl">
+              {/* Header */}
+              <div className="flex items-center gap-4 mb-8">
+                {allActiveProjects.length > 1 && (
+                  <button
+                    onClick={() => setSetupStep('project_select')}
+                    className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all cursor-pointer shrink-0"
+                    title="Back to project selection"
+                  >
+                    <ArrowRight className="w-4 h-4 rotate-180" />
+                  </button>
+                )}
+                <div className="flex-1">
+                  <img src="/stoshi_logo.webp" alt="Stoshi" className="h-8 w-auto mb-2" />
+                  <span className="text-[11px] font-extrabold tracking-widest text-[#74E61F] uppercase block mb-0.5">
+                    {allActiveProjects.length > 1 ? 'STEP 2 OF 2 — SELECT YOUR PLAN' : 'SELECT YOUR PLAN'}
+                  </span>
+                  <h3 className="text-lg font-extrabold font-sora tracking-tight text-white">
+                    {activeProject?.name || 'Active Project'}
+                  </h3>
+                </div>
+              </div>
+
+              {/* Plan cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+                {[
+                  {
+                    key: 'Silver',
+                    price: activeProject?.silverPrice || 7500,
+                    badge: 'Basic',
+                    desc: activeProject?.silverDesc || 'Entry-level green energy membership'
+                  },
+                  {
+                    key: 'Gold',
+                    price: activeProject?.goldPrice || 15000,
+                    badge: 'Advanced',
+                    desc: activeProject?.goldDesc || 'Best choice for most members',
+                    popular: true
+                  },
+                  {
+                    key: 'Platinum',
+                    price: activeProject?.platinumPrice || 30000,
+                    badge: 'Premium',
+                    desc: activeProject?.platinumDesc || 'Maximum impact & exclusive benefits'
+                  }
+                ].map(plan => (
+                  <button
+                    key={plan.key}
+                    onClick={() => {
+                      setSelectedPlan(plan.key);
+                      setSetupStep('checkout');
+                    }}
+                    className={`flex flex-col p-6 rounded-2xl transition-all text-left cursor-pointer border-2 relative ${
+                      incomingPlan === plan.key
+                        ? 'border-[#74E61F] bg-[#74E61F]/10 ring-1 ring-[#74E61F]/30'
+                        : plan.popular
+                          ? 'border-[#74E61F]/40 bg-[#74E61F]/5 hover:border-[#74E61F] hover:bg-[#74E61F]/10'
+                          : 'border-white/10 bg-white/5 hover:border-[#74E61F]/50 hover:bg-[#74E61F]/5'
+                    }`}
+                  >
+                    {plan.popular && (
+                      <span className="absolute top-3 right-3 text-[9px] font-extrabold text-[#74E61F] uppercase tracking-widest">
+                        Best choice
+                      </span>
+                    )}
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider mb-4 w-fit ${
+                      plan.popular ? 'bg-[#74E61F]/20 text-[#74E61F]' : 'bg-white/10 text-slate-300'
+                    }`}>
+                      {plan.badge}
+                    </span>
+                    <span className="text-2xl font-extrabold font-sora text-white mb-1">
+                      {formatRupee(Number(plan.price))}
+                    </span>
+                    <span className="text-[11px] text-slate-400 mb-5 leading-relaxed">{plan.desc}</span>
+                    <div className={`w-full py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-wider text-center transition-all ${
+                      plan.popular
+                        ? 'bg-[#74E61F] text-[#042A1d]'
+                        : 'bg-white/10 text-white hover:bg-white/20'
+                    }`}>
+                      Select Plan →
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+
         ) : (
           <motion.div
             key="checkout"
@@ -1159,6 +1352,24 @@ export default function Payment() {
             <div className="lg:col-span-5 glassmorphism-dark rounded-[32px] p-8 border border-white/10 flex flex-col justify-between shadow-2xl">
               <div>
                 <img src="/stoshi_logo.webp" alt="Stoshi" className="h-10 w-auto mb-8" />
+
+                {/* Auto-fill banner: shown when user arrived from a Home pricing card */}
+                {routerState?.planPrice > 0 && (
+                  <div className="mb-5 px-4 py-3 rounded-xl bg-[#74E61F]/10 border border-[#74E61F]/25 flex items-start gap-3">
+                    <div className="w-5 h-5 rounded-full bg-[#74E61F]/20 border border-[#74E61F]/40 flex items-center justify-center shrink-0 mt-0.5">
+                      <Check className="w-3 h-3 text-[#74E61F]" />
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-extrabold text-[#74E61F] uppercase tracking-wider block mb-0.5">
+                        Auto-filled from your selection
+                      </span>
+                      <span className="text-sm font-black font-sora text-white">
+                        {routerState.planName} Plan &mdash; {formatRupee(routerState.planPrice)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-[#74E61F]/20 text-[#74E61F] uppercase tracking-wider block w-fit mb-3">
                   Checkout Summary
                 </span>

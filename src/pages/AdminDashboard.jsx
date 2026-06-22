@@ -1,8 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, createContext, useContext } from 'react';
 import { useNavigate, Link } from '../router';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
+
+export const AdminProjectContext = createContext({
+  projects: [],
+  selectedProject: null,
+  setSelectedProject: () => {}
+});
 import { collection, doc, onSnapshot, getDocs, updateDoc, deleteDoc, setDoc, addDoc, orderBy, query, where, writeBatch, serverTimestamp, increment } from 'firebase/firestore';
 import {
   LayoutDashboard, Users, Wallet, Settings, LogOut,
@@ -128,6 +134,7 @@ export default function AdminDashboard() {
   const [userSearch, setUserSearch] = useState('');
   const [paymentSearch, setPaymentSearch] = useState('');
   const [memberFilter, setMemberFilter] = useState('All');
+  const [selectedProjectId, setSelectedProjectId] = useState('');
 
   const [editingUser, setEditingUser] = useState(null);
   const [userForm, setUserForm] = useState({ name: '', phone: '', membershipType: '', membershipStatus: '', paymentStatus: '' });
@@ -217,8 +224,18 @@ export default function AdminDashboard() {
   }, []);
 
   // ─── COMPUTED STATS ────────────────────────────────────────────────────────
-  const activeProject = projectsList.find(p => p.isActive === true) || projectsList[0];
-  const activeProjectId = activeProject?.id || '';
+  useEffect(() => {
+    if (projectsList.length > 0 && !selectedProjectId) {
+      const firstActive = projectsList.find(p => p.isActive === true || p.status === 'active') || projectsList[0];
+      setSelectedProjectId(firstActive.id);
+    }
+  }, [projectsList, selectedProjectId]);
+
+  const selectedProject = projectsList.find(p => p.id === selectedProjectId) || projectsList[0] || null;
+
+  // Let activeProject and activeProjectId represent the selected project globally
+  const activeProject = selectedProject;
+  const activeProjectId = selectedProjectId;
 
   useEffect(() => {
     if (activeProjectId && !waitlistForm.projectId) {
@@ -235,9 +252,13 @@ export default function AdminDashboard() {
     const pId = u.projectId || (projectsList[0]?.id || '');
     return pId === activeProjectId;
   });
+
+  const currentPaymentsProjectId = activeProjectId;
+  const selectedProjForPayments = selectedProject;
+
   const activeProjPayments = paymentsList.filter(p => {
     const pId = p.projectId || (projectsList[0]?.id || '');
-    return pId === activeProjectId;
+    return pId === currentPaymentsProjectId;
   });
 
   // Analytics stats stay project-scoped
@@ -247,10 +268,15 @@ export default function AdminDashboard() {
   const silverMembers = activeProjUsers.filter(u => u.membershipType === 'Silver' && u.membershipStatus === 'Active').length;
   const goldMembers = activeProjUsers.filter(u => u.membershipType === 'Gold' && u.membershipStatus === 'Active').length;
   const platinumMembers = activeProjUsers.filter(u => u.membershipType === 'Platinum' && u.membershipStatus === 'Active').length;
+  
+  // Global aggregate metrics (with a note)
+  const globalActiveMembers = usersList.filter(u => u.role !== 'admin' && u.membershipStatus === 'Active').length;
+  const globalTotalRevenue = paymentsList.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+
   const totalRevenue = activeProjPayments.reduce((acc, curr) => acc + (curr.amount || 0), 0);
-  const totalCompanyIncome = companyIncomeList.reduce((acc, curr) => acc + (curr.amount || 0), 0);
-  const totalDistributed = distributionsList.filter(d => d.status === 'locked').reduce((acc, d) => acc + (d.totalDistributed || 0), 0);
-  const pendingDistribution = distributionsList.filter(d => d.status === 'confirmed').reduce((acc, d) => acc + (d.totalDistributed || 0), 0);
+  const totalCompanyIncome = companyIncomeList.filter(i => i.projectId === selectedProjectId).reduce((acc, curr) => acc + (curr.amount || 0), 0);
+  const totalDistributed = distributionsList.filter(d => d.projectId === selectedProjectId && d.status === 'locked').reduce((acc, d) => acc + (d.totalDistributed || 0), 0);
+  const pendingDistribution = distributionsList.filter(d => d.projectId === selectedProjectId && d.status === 'confirmed').reduce((acc, d) => acc + (d.totalDistributed || 0), 0);
 
   const chartData = [
     { label: 'Silver', value: silverMembers },
@@ -259,18 +285,18 @@ export default function AdminDashboard() {
   ];
 
   // ── Member Management table: ALL registered users (including new signups) ──
-  // New signups have projectId = null until they pay, so we must NOT filter by
-  // projectId here — otherwise fresh registrations are invisible to the admin.
   const allNonAdminUsers = usersList.filter(u => u.role !== 'admin');
 
   // ─── FILTERED DATA ─────────────────────────────────────────────────────────
-  const filteredUsers = allNonAdminUsers.filter(u => {
-    const matchesSearch = u.name?.toLowerCase().includes(userSearch.toLowerCase()) ||
-      u.email?.toLowerCase().includes(userSearch.toLowerCase()) ||
-      u.phone?.includes(userSearch);
-    const matchesPackage = memberFilter === 'All' || u.membershipType === memberFilter;
-    return matchesSearch && matchesPackage;
-  });
+  const filteredUsers = allNonAdminUsers
+    .filter(u => u.projectId === selectedProjectId)
+    .filter(u => {
+      const matchesSearch = u.name?.toLowerCase().includes(userSearch.toLowerCase()) ||
+        u.email?.toLowerCase().includes(userSearch.toLowerCase()) ||
+        u.phone?.includes(userSearch);
+      const matchesPackage = memberFilter === 'All' || u.membershipType === memberFilter;
+      return matchesSearch && matchesPackage;
+    });
 
   const filteredPayments = activeProjPayments.filter(p =>
     p.userName?.toLowerCase().includes(paymentSearch.toLowerCase()) ||
@@ -278,6 +304,10 @@ export default function AdminDashboard() {
     p.transactionId?.toLowerCase().includes(paymentSearch.toLowerCase()) ||
     p.plan?.toLowerCase().includes(paymentSearch.toLowerCase())
   );
+
+  const filteredCompanyIncomeList = companyIncomeList.filter(inc => inc.projectId === selectedProjectId);
+  const filteredDistributionsList = distributionsList.filter(d => d.projectId === selectedProjectId);
+  const filteredWaitlist = waitlist.filter(w => w.projectId === selectedProjectId);
 
   // â”€â”€â”€ HANDLERS: MEMBER MANAGEMENT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleToggleAdmin = async (userId, currentRole) => {
@@ -556,7 +586,8 @@ export default function AdminDashboard() {
         amount,
         description: incomeForm.description || 'Manual entry',
         enteredBy: currentUser.uid,
-        enteredAt: serverTimestamp()
+        enteredAt: serverTimestamp(),
+        projectId: selectedProjectId
       });
       await logActivity(currentUser?.uid, userData?.name, 'Add Company Income', `Added income â‚¹${amount}`);
       setIncomeForm({ amount: '', description: '' });
@@ -712,14 +743,15 @@ export default function AdminDashboard() {
     } catch (err) { alert('Error: ' + err.message); }
   };
 
-  const handleSetActiveProject = async (projectId) => {
+  const handleToggleProjectActive = async (projectId, currentIsActive) => {
     try {
-      const batch = writeBatch(db);
-      projectsList.forEach(p => {
-        batch.update(doc(db, 'projects', p.id), { isActive: p.id === projectId });
+      const newActive = !currentIsActive;
+      await updateDoc(doc(db, 'projects', projectId), {
+        isActive: newActive,
+        status: newActive ? 'active' : 'inactive',
+        lastUpdated: new Date().toISOString()
       });
-      await batch.commit();
-      await logActivity(currentUser?.uid, userData?.name, 'Set Active Project', `Set ${projectId} as active`);
+      await logActivity(currentUser?.uid, userData?.name, 'Toggle Project Active', `Set project ${projectId} to ${newActive ? 'active' : 'inactive'}`);
     } catch (err) { alert('Error: ' + err.message); }
   };
 
@@ -873,7 +905,8 @@ const textSecondary = 'text-gray-700';
   const darkMode = false;
 
   return (
-    <div ref={pageRef} className={`min-h-screen ${bg} ${textPrimary} flex font-inter relative transition-colors duration-300`}>
+    <AdminProjectContext.Provider value={{ projects: projectsList, selectedProject, setSelectedProject: (proj) => setSelectedProjectId(proj?.id || '') }}>
+      <div ref={pageRef} className={`min-h-screen ${bg} ${textPrimary} flex font-inter relative transition-colors duration-300`}>
       <div className="absolute top-0 right-0 w-[40%] h-[40%] bg-[#D8F3DC] rounded-full blur-[150px] pointer-events-none opacity-50" />
       <div className="absolute bottom-0 left-[20%] w-[50%] h-[50%] bg-[#B7E4C7] rounded-full blur-[150px] pointer-events-none opacity-30" />
 
@@ -962,6 +995,34 @@ const textSecondary = 'text-gray-700';
           </div>
         </div>
 
+        {/* Global Project Selector Tabs */}
+        <div className="flex flex-wrap gap-2 mb-8">
+          {projectsList.map((project) => {
+            const isSelected = project.id === selectedProjectId;
+            const isLive = project.isActive === true || project.status === 'active';
+            return (
+              <button
+                key={project.id}
+                onClick={() => setSelectedProjectId(project.id)}
+                className={`px-5 py-3 rounded-2xl border text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer ${
+                  isSelected
+                    ? 'bg-[#1b4332] border-[#1b4332] text-white shadow-md'
+                    : 'bg-white border-[#B7E4C7] text-[#40916C] hover:bg-[#D8F3DC] hover:text-[#1B4332]'
+                }`}
+              >
+                <span>{project.name || 'Unnamed Project'}</span>
+                {isLive && (
+                  <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-widest ${
+                    isSelected ? 'bg-[#74E61F]/20 text-[#74E61F]' : 'bg-[#74E61F] text-[#042A1d]'
+                  }`}>
+                    LIVE
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
         <AnimatePresence mode="wait">
           <motion.div key={activeTab} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }} transition={{ duration: 0.3 }} className="space-y-8">
 
@@ -992,10 +1053,10 @@ const textSecondary = 'text-gray-700';
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <StatCard icon={<Building2 className="w-5 h-5" />} label="Project Members" value={activeProjectMembers} color="text-[#74E61F]" bgColor="bg-[#74E61F]/10" borderColor="border-[#74E61F]/10" />
+                  <StatCard icon={<Building2 className="w-5 h-5" />} label="Project Members" value={activeProjectMembers} color="text-[#74E61F]" bgColor="bg-[#74E61F]/10" borderColor="border-[#74E61F]/10" note={`Global active members: ${globalActiveMembers}`} />
                   <StatCard icon={<Check className="w-5 h-5" />} label="Active Members (All)" value={loadingData ? '...' : activeMembers} color="text-emerald-400" bgColor="bg-emerald-500/10" borderColor="border-emerald-500/10" />
                   <StatCard icon={<Wallet className="w-5 h-5" />} label="Pool Collected" value={formatRupee(activeProjectCollected)} color="text-cyan-400" bgColor="bg-cyan-500/10" borderColor="border-cyan-500/10" />
-                  <StatCard icon={<TrendingUp className="w-5 h-5" />} label="Total Revenue" value={loadingData ? '...' : formatRupee(totalRevenue)} color="text-emerald-400" bgColor="bg-emerald-500/10" borderColor="border-emerald-500/10" />
+                  <StatCard icon={<TrendingUp className="w-5 h-5" />} label="Total Revenue" value={loadingData ? '...' : formatRupee(totalRevenue)} color="text-emerald-400" bgColor="bg-emerald-500/10" borderColor="border-emerald-500/10" note={`Global revenue: ${formatRupee(globalTotalRevenue)}`} />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1054,7 +1115,7 @@ const textSecondary = 'text-gray-700';
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div>
                     <h3 className={`text-xl font-extrabold font-sora ${textPrimary}`}>Member Management</h3>
-                    <p className={`text-xs mt-1 ${textSecondary}`}>Manage all registered members</p>
+                    <p className={`text-xs mt-1 ${textSecondary}`}>Showing members for <strong>{selectedProject?.name || 'selected project'}</strong></p>
                   </div>
                   <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
                     <div className="relative w-full md:w-64">
@@ -1198,7 +1259,7 @@ const textSecondary = 'text-gray-700';
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div>
                     <h3 className={`text-xl font-extrabold font-sora ${textPrimary}`}>Payment Management</h3>
-                    <p className={`text-xs mt-1 ${textSecondary}`}>Track all transactions and payment statuses</p>
+                    <p className={`text-xs mt-1 ${textSecondary}`}>Transactions for <strong>{selectedProject?.name || 'selected project'}</strong></p>
                   </div>
                   <div className="flex flex-col md:flex-row gap-3">
                     <div className="relative w-full md:w-72">
@@ -1211,6 +1272,29 @@ const textSecondary = 'text-gray-700';
                       className="px-4 py-2.5 rounded-2xl bg-[#F7FBF9] border border-[#B7E4C7] text-[#2D3748] hover:bg-[#D8F3DC] hover:text-[#1B4332] transition-all text-xs font-bold uppercase cursor-pointer flex items-center gap-2">
                       <Download className="w-3.5 h-3.5" /> Export CSV
                     </button>
+                  </div>
+                </div>
+
+                {/* Project filtered by global selector above */}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-5 bg-white rounded-3xl border border-[#B7E4C7] shadow-sm flex items-center space-x-4">
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0 border border-emerald-500/20">
+                      <Users className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-[#40916C] uppercase tracking-widest block mb-1">Total Members</span>
+                      <div className="text-2xl font-extrabold font-sora text-[#1B4332]">{selectedProjForPayments?.totalMembers || 0}</div>
+                    </div>
+                  </div>
+                  <div className="p-5 bg-white rounded-3xl border border-[#B7E4C7] shadow-sm flex items-center space-x-4">
+                    <div className="w-10 h-10 rounded-2xl bg-[#74E61F]/10 text-[#74E61F] flex items-center justify-center shrink-0 border border-[#74E61F]/20">
+                      <Wallet className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-[#40916C] uppercase tracking-widest block mb-1">Total Funds Raised</span>
+                      <div className="text-2xl font-extrabold font-sora text-[#1B4332]">{formatRupee(selectedProjForPayments?.collectedAmount || 0)}</div>
+                    </div>
                   </div>
                 </div>
 
@@ -1341,7 +1425,7 @@ const textSecondary = 'text-gray-700';
                       </tr>
                     </thead>
                     <tbody className="divide-y ${cardBorder} text-xs font-medium">
-                      {companyIncomeList.map((inc) => (
+                      {filteredCompanyIncomeList.map((inc) => (
                         <tr key={inc.id} className={`${darkMode ? 'hover:bg-white/5 text-[#2D3748]' : 'hover:bg-slate-50 text-slate-600'} transition-colors`}>
                           <td className={`p-4 ${textSecondary}`}>
                             {inc.enteredAt?.toDate ? new Date(inc.enteredAt.toDate()).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
@@ -1357,15 +1441,15 @@ const textSecondary = 'text-gray-700';
                           </td>
                         </tr>
                       ))}
-                      {companyIncomeList.length === 0 && (
-                        <tr><td colSpan="5" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>No income records yet.</td></tr>
+                      {filteredCompanyIncomeList.length === 0 && (
+                        <tr><td colSpan="5" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>No income records for this project.</td></tr>
                       )}
                     </tbody>
                   </table>
                 </div>
 
                 <div className={`p-4 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} border ${cardBorder} rounded-2xl flex justify-between items-center`}>
-                  <span className={`text-xs font-bold uppercase ${textSecondary}`}>Total Company Income</span>
+                  <span className={`text-xs font-bold uppercase ${textSecondary}`}>Total Company Income &mdash; <em className="normal-case font-medium">{selectedProject?.name}</em></span>
                   <span className="text-lg font-bold text-[#74E61F] font-sora">{formatRupee(totalCompanyIncome)}</span>
                 </div>
               </div>
@@ -1507,7 +1591,7 @@ const textSecondary = 'text-gray-700';
                         </tr>
                       </thead>
                       <tbody className="divide-y ${cardBorder} text-xs font-medium">
-                        {distributionsList.map((dist) => (
+                        {filteredDistributionsList.map((dist) => (
                           <tr key={dist.id} className={`${darkMode ? 'hover:bg-white/5 text-[#2D3748]' : 'hover:bg-slate-50 text-slate-600'} transition-colors`}>
                             <td className={`p-4 ${textSecondary}`}>
                               {dist.distributedAt?.toDate ? new Date(dist.distributedAt.toDate()).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
@@ -1536,8 +1620,8 @@ const textSecondary = 'text-gray-700';
                             </td>
                           </tr>
                         ))}
-                        {distributionsList.length === 0 && (
-                          <tr><td colSpan="7" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>No distributions yet.</td></tr>
+                        {filteredDistributionsList.length === 0 && (
+                          <tr><td colSpan="7" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>No distributions for this project yet.</td></tr>
                         )}
                       </tbody>
                     </table>
@@ -1565,7 +1649,7 @@ const textSecondary = 'text-gray-700';
                     description="Activate membership for all paid pending members"
                     action={handleBulkActivate}
                     color="emerald"
-                    count={usersList.filter(u => u.membershipStatus === 'Pending' && u.paymentStatus === 'Paid').length}
+                    count={activeProjUsers.filter(u => u.membershipStatus === 'Pending' && u.paymentStatus === 'Paid').length}
                   />
                   <ControlCard
                     icon={<UserMinus className="w-6 h-6" />}
@@ -1581,7 +1665,7 @@ const textSecondary = 'text-gray-700';
                     description="Deactivate non-paying active members"
                     action={handleValidateActiveMembers}
                     color="red"
-                    count={usersList.filter(u => u.membershipStatus === 'Active' && u.paymentStatus !== 'Paid').length}
+                    count={activeProjUsers.filter(u => u.membershipStatus === 'Active' && u.paymentStatus !== 'Paid').length}
                   />
                 </div>
 
@@ -1591,7 +1675,7 @@ const textSecondary = 'text-gray-700';
                     <StatBadge label="Total" value={totalUsers} color="text-[#1B4332]" />
                     <StatBadge label="Active" value={activeMembers} color="text-emerald-400" />
                     <StatBadge label="Pending" value={inactiveMembers} color="text-amber-400" />
-                    <StatBadge label="Unpaid Active" value={usersList.filter(u => u.membershipStatus === 'Active' && u.paymentStatus !== 'Paid').length} color="text-red-400" />
+                    <StatBadge label="Unpaid Active" value={activeProjUsers.filter(u => u.membershipStatus === 'Active' && u.paymentStatus !== 'Paid').length} color="text-red-400" />
                   </div>
                 </div>
               </div>
@@ -1626,9 +1710,9 @@ const textSecondary = 'text-gray-700';
                     const pct = cap > 0 ? Math.min(Math.round((col / cap) * 100), 100) : 0;
                     return (
                       <div key={project.id} className={`p-6 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} border ${cardBorder} rounded-2xl space-y-4 relative overflow-hidden`}>
-                        {project.isActive && (
-                          <div className="absolute top-3 right-3 px-2 py-0.5 bg-[#74E61F]/15 text-[#74E61F] text-[8px] font-black uppercase rounded-lg tracking-wider border border-[#74E61F]/20">
-                            Active
+                        {(project.isActive === true || project.status === 'active') && (
+                          <div className="absolute top-3 right-3 px-2 py-0.5 bg-emerald-500/10 text-emerald-500 text-[8px] font-black uppercase rounded-lg tracking-wider border border-emerald-500/20">
+                            LIVE
                           </div>
                         )}
                         <div className="flex items-start justify-between">
@@ -1685,21 +1769,29 @@ const textSecondary = 'text-gray-700';
                           <p className={`text-[10px] ${textSecondary} leading-relaxed`}>{project.description}</p>
                         )}
 
-                        <div className={`flex items-center gap-2 pt-2 border-t ${cardBorder}`}>
-                          <button onClick={() => handleEditProject(project)}
-                            className="flex-1 py-2 rounded-xl bg-[#F7FBF9] border border-[#B7E4C7] text-[#2D3748] hover:bg-[#D8F3DC] hover:text-[#1B4332] transition-all text-[10px] font-bold uppercase cursor-pointer flex items-center justify-center gap-1.5">
-                            <Edit className="w-3 h-3" /> Edit
-                          </button>
-                          {!project.isActive && (
-                            <button onClick={() => handleSetActiveProject(project.id)}
-                              className="flex-1 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all text-[10px] font-bold uppercase cursor-pointer flex items-center justify-center gap-1.5">
-                              <Target className="w-3 h-3" /> Set Active
+                        <div className={`flex items-center justify-between pt-2 border-t ${cardBorder}`}>
+                          <div className="flex items-center">
+                            <label className="relative inline-flex items-center cursor-pointer select-none">
+                              <input 
+                                type="checkbox" 
+                                checked={project.isActive === true}
+                                onChange={() => handleToggleProjectActive(project.id, project.isActive || false)}
+                                className="sr-only peer" 
+                              />
+                              <div className="w-8 h-4.5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-500"></div>
+                              <span className="ml-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Active</span>
+                            </label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => handleEditProject(project)}
+                              className="py-2 px-3 rounded-xl bg-[#F7FBF9] border border-[#B7E4C7] text-[#2D3748] hover:bg-[#D8F3DC] hover:text-[#1B4332] transition-all text-[10px] font-bold uppercase cursor-pointer flex items-center justify-center gap-1.5">
+                              <Edit className="w-3 h-3" /> Edit
                             </button>
-                          )}
-                          <button onClick={() => handleDeleteProject(project.id)}
-                            className="py-2 px-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white transition-all cursor-pointer" title="Delete">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                            <button onClick={() => handleDeleteProject(project.id)}
+                              className="py-2 px-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white transition-all cursor-pointer" title="Delete">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -1854,18 +1946,18 @@ const textSecondary = 'text-gray-700';
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  <ReportCard title="Members Report" description="Export all member data as CSV" onExport={handleExportUsers} count={filteredUsers.length} icon={<Users className="w-5 h-5" />} />
-                  <ReportCard title="Payments Report" description="Export all payment transactions" onExport={handleExportPayments} count={paymentsList.length} icon={<Wallet className="w-5 h-5" />} />
-                  <ReportCard title="Distributions Report" description="Export distribution history" onExport={handleExportDistributions} count={distributionsList.length} icon={<PieChart className="w-5 h-5" />} />
-                  <ReportCard title="Company Income Report" description="Export company income records"
+                  <ReportCard title="Members Report" description={`Members for ${selectedProject?.name || 'project'}`} onExport={handleExportUsers} count={filteredUsers.length} icon={<Users className="w-5 h-5" />} />
+                  <ReportCard title="Payments Report" description={`Transactions for ${selectedProject?.name || 'project'}`} onExport={handleExportPayments} count={filteredPayments.length} icon={<Wallet className="w-5 h-5" />} />
+                  <ReportCard title="Distributions Report" description={`Distributions for ${selectedProject?.name || 'project'}`} onExport={handleExportDistributions} count={filteredDistributionsList.length} icon={<PieChart className="w-5 h-5" />} />
+                  <ReportCard title="Company Income Report" description={`Income for ${selectedProject?.name || 'project'}`}
                     onExport={() => {
                       exportToCSV(
-                        companyIncomeList.map(i => ({ Date: i.enteredAt?.toDate ? i.enteredAt.toDate().toLocaleDateString('en-IN') : 'N/A', Amount: i.amount, Description: i.description || '' })),
-                        'company_income_export',
+                        filteredCompanyIncomeList.map(i => ({ Date: i.enteredAt?.toDate ? i.enteredAt.toDate().toLocaleDateString('en-IN') : 'N/A', Amount: i.amount, Description: i.description || '' })),
+                        `company_income_${selectedProject?.name || 'export'}`,
                         ['Date', 'Amount', 'Description']
                       );
                     }}
-                    count={companyIncomeList.length} icon={<TrendingUp className="w-5 h-5" />} />
+                    count={filteredCompanyIncomeList.length} icon={<TrendingUp className="w-5 h-5" />} />
                   <ReportCard title="Analytics Summary" description="Download key dashboard metrics"
                     onExport={() => {
                       const summary = [
@@ -1956,7 +2048,7 @@ const textSecondary = 'text-gray-700';
                       </tr>
                     </thead>
                     <tbody className="divide-y ${cardBorder} text-xs font-medium">
-                      {waitlist.map((entry) => (
+                      {filteredWaitlist.map((entry) => (
                         <tr key={entry.id} className={`${darkMode ? 'hover:bg-white/5 text-[#2D3748]' : 'hover:bg-slate-50 text-slate-600'} transition-colors`}>
                           <td className={`p-4 font-bold ${textPrimary}`}>{entry.name}</td>
                           <td className={`p-4 ${textSecondary}`}>{entry.email}</td>
@@ -1985,8 +2077,8 @@ const textSecondary = 'text-gray-700';
                           </td>
                         </tr>
                       ))}
-                      {waitlist.length === 0 && (
-                        <tr><td colSpan="8" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>Waitlist is empty.</td></tr>
+                      {filteredWaitlist.length === 0 && (
+                        <tr><td colSpan="8" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>No waitlist entries for this project.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -2055,16 +2147,18 @@ const textSecondary = 'text-gray-700';
         </AnimatePresence>
       </main>
     </div>
+    </AdminProjectContext.Provider>
   );
 }
 
 // â”€â”€â”€ SUB-COMPONENTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function StatCard({ icon, label, value, color, bgColor, borderColor }) {
+function StatCard({ icon, label, value, color, bgColor, borderColor, note }) {
   return (
     <div className="p-6 bg-white rounded-3xl border border-[#B7E4C7] relative overflow-hidden" style={{ boxShadow: '0 2px 12px rgba(27,67,50,0.07)' }}>
       <div className={`w-10 h-10 rounded-2xl ${bgColor} flex items-center justify-center ${color} mb-4 border ${borderColor}`}>{icon}</div>
       <span className="text-[10px] font-bold text-[#40916C] uppercase tracking-widest block mb-1">{label}</span>
       <div className="text-3xl font-extrabold font-sora text-[#1B4332]">{value}</div>
+      {note && <span className="text-[9px] text-slate-400 mt-1 block font-medium">{note}</span>}
     </div>
   );
 }

@@ -166,9 +166,7 @@ export default function SignIn() {
 
         {/* Quick Test Accounts Banner */}
         <div className="mt-8 pt-6 border-t border-[#B7E4C7] text-center">
-          <p className="text-[10px] font-bold text-[#40916C] uppercase tracking-widest mb-3">
-            Testing Shortcuts
-          </p>
+         
           {isAdminFlow && (
             <p className="text-[9px] text-[#40916C] mt-2">
               Tip: Registering an email like <span className="font-semibold text-[#1B4332]">admin@stoshi.com</span> automatically grants admin status.

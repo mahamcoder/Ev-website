@@ -32,7 +32,7 @@ export default function Home() {
       (snapshot) => {
         const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
         setProjects(list);
-        const actives = list.filter(p => p.isActive === true);
+        const actives = list.filter(p => p.isActive === true || p.status === 'active');
         setActiveProjects(actives);
         
         setActiveProject(current => {
@@ -59,11 +59,14 @@ export default function Home() {
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const handleSelectPlan = (planKey) => {
-    navigate(`/payment?plan=${planKey}&projectId=${activeProject?.id || ''}`);
+  const handleSelectPlan = (planKey, planPrice) => {
+    const projectId = activeProject?.id || '';
+    navigate(`/payment?plan=${planKey}&projectId=${projectId}`, {
+      state: { planName: planKey, planPrice: planPrice || 0, projectId }
+    });
   };
 
-  const nonActiveProjects = projects.filter(p => p.isActive !== true && p.id !== activeProject?.id);
+  const nonActiveProjects = projects.filter(p => p.isActive !== true && p.status !== 'active' && p.id !== activeProject?.id);
 
   return (
     <div className="relative min-h-screen bg-brand-light selection:bg-brand-parrot selection:text-brand-dark">
@@ -73,26 +76,54 @@ export default function Home() {
 
       <WhoWeAre />
 
-      {activeProjects.length > 1 && (
-        <section className="pt-10 pb-2 bg-brand-light">
+      {activeProjects.length > 0 && (
+        <section className="pt-16 pb-4 bg-brand-light">
           <div className="max-w-7xl mx-auto px-4 md:px-8 flex flex-col items-center">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4 font-sora">Select Active Project</h3>
-            <div className="flex gap-3 overflow-x-auto pb-2 w-full justify-center custom-scrollbar">
-              {activeProjects.map(proj => (
-                <button 
-                  key={proj.id}
-                  onClick={() => setActiveProject(proj)}
-                  className={`px-5 py-2.5 rounded-full text-[10px] sm:text-xs font-bold uppercase tracking-wider transition-all shadow-sm flex items-center gap-2 cursor-pointer ${
-                    activeProject?.id === proj.id 
-                    ? 'bg-brand-dark text-[#74E61F] border border-[#74E61F]' 
-                    : 'bg-white text-slate-600 border border-slate-200 hover:border-[#74E61F] hover:text-brand-dark'
-                  }`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${activeProject?.id === proj.id ? 'bg-[#74E61F] animate-pulse' : 'bg-slate-300'}`}></span>
-                  {proj.name}
-                </button>
-              ))}
+            <span className="text-[11px] font-extrabold tracking-widest text-[#3B6D11] uppercase block mb-2 font-sora">
+              ACTIVE PROJECTS
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-black font-sora text-[#042A1d] mb-2 text-center">
+              Choose a project to explore
+            </h2>
+            <p className="text-slate-500 font-semibold text-xs sm:text-sm max-w-xl text-center mb-8">
+              Select any live project below to view its capacity, details & pricing
+            </p>
+            <div className="flex flex-col sm:flex-row flex-wrap gap-6 w-full max-w-5xl justify-center items-center px-4">
+              {activeProjects.map(proj => {
+                const total = proj.totalCapacity || 0;
+                const filled = proj.collectedAmount || 0;
+                const fundingPercent = total > 0 ? Math.min((filled / total) * 100, 100) : 0;
+                const isActiveTab = activeProject?.id === proj.id;
+                return (
+                  <div key={proj.id} className="relative">
+                    <button 
+                      onClick={() => setActiveProject(proj)}
+                      className={`flex flex-col p-5 rounded-2xl transition-all text-left shadow-sm cursor-pointer w-64 border-2 ${
+                        isActiveTab 
+                        ? 'border-[#3B6D11] bg-[#EAF3DE]' 
+                        : 'border-slate-200 bg-white hover:border-[#3B6D11] hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 bg-[#EAF3DE] text-[#3B6D11] text-[9px] font-extrabold tracking-wider px-2 py-0.5 rounded-full uppercase border border-[#3B6D11]/10 mb-3">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#3B6D11] animate-pulse" />
+                        <span>LIVE</span>
+                      </div>
+                      <span className="text-sm font-black font-sora text-[#042A1d] mb-1">
+                        {proj.name}
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        {fundingPercent.toFixed(0)}% Funded
+                      </span>
+                    </button>
+                    {isActiveTab && (
+                      <div className="absolute left-1/2 -translate-x-1/2 -bottom-[8px] w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-[#3B6D11] z-10" />
+                    )}
+                  </div>
+                );
+              })}
             </div>
+            
+            <div className="w-full max-w-5xl h-[1px] bg-gradient-to-r from-transparent via-[#3B6D11]/30 to-transparent mt-8" />
           </div>
         </section>
       )}

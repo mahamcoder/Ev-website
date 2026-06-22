@@ -106,6 +106,9 @@ export default function UserDashboard() {
     location: ''
   });
 
+  const [projectsList, setProjectsList] = useState([]);
+  const [selectedProjectId, setSelectedProjectId] = useState(null);
+
   const [earnings, setEarnings] = useState({
     utilityPool: 0, greenImpactPool: 0, loyaltyPool: 0, totalEarnings: 0
   });
@@ -119,9 +122,58 @@ export default function UserDashboard() {
   const memberId = currentUser?.uid ? `STS-${currentUser.uid.slice(0, 8).toUpperCase()}` : 'N/A';
   const joinDate = userData?.joinDate?.toDate ? userData.joinDate.toDate() : userData?.joinDate ? new Date(userData.joinDate) : null;
 
-  const isSilver = currentPlan === 'Silver';
-  const isGold = currentPlan === 'Gold';
-  const isPlatinum = currentPlan === 'Platinum';
+  const groupPaymentsByProject = () => {
+    const groups = {};
+    payments.forEach(p => {
+      const pId = p.projectId || (projectsList[0]?.id || 'unknown');
+      if (!groups[pId]) {
+        groups[pId] = [];
+      }
+      groups[pId].push(p);
+    });
+    return groups;
+  };
+
+  const projectGroups = groupPaymentsByProject();
+
+  const userProjects = Object.entries(projectGroups).map(([pId, groupPayments]) => {
+    const latestPayment = groupPayments[0];
+    const totalAmount = groupPayments.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+    const project = projectsList.find(pr => pr.id === pId);
+    
+    let mStatus = 'Pending';
+    let pStatus = 'Unpaid';
+    if (latestPayment?.status === 'Success' || latestPayment?.status === 'Paid') {
+      mStatus = 'Active';
+      pStatus = 'Paid';
+    } else if (latestPayment?.status === 'pending_verification') {
+      mStatus = 'Pending';
+      pStatus = 'Pending Verification';
+    } else if (latestPayment?.status === 'Failed') {
+      mStatus = 'Inactive';
+      pStatus = 'Failed';
+    }
+    
+    return {
+      projectId: pId,
+      projectName: project?.name || 'Active Project',
+      planName: latestPayment?.plan || 'Gold',
+      amount: totalAmount,
+      status: mStatus,
+      paymentStatus: pStatus,
+      date: latestPayment?.date || new Date().toISOString(),
+      transactionId: latestPayment?.transactionId || 'N/A',
+      latestPayment
+    };
+  });
+
+  const selectedProjMembership = userProjects.find(up => up.projectId === selectedProjectId) || userProjects[0] || null;
+  const activePlan = selectedProjMembership ? selectedProjMembership.planName : (userData?.membershipType || 'Gold');
+  const activeMembershipStatus = selectedProjMembership ? selectedProjMembership.status : (userData?.membershipStatus || 'Pending');
+  const activePaymentStatus = selectedProjMembership ? selectedProjMembership.paymentStatus : (userData?.paymentStatus || 'Unpaid');
+  const activeJoinDate = selectedProjMembership ? new Date(selectedProjMembership.date) : joinDate;
+
+  const activeProjectPayments = payments.filter(p => (p.projectId || projectsList[0]?.id || '') === selectedProjectId);
 
   useEffect(() => {
     if (userData) {
@@ -136,11 +188,24 @@ export default function UserDashboard() {
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'projects'), (snapshot) => {
       const projects = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      const active = projects.find(p => p.isActive === true) || projects[0];
-      if (active) setProjectData(active);
+      setProjectsList(projects);
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    if (userProjects.length > 0 && !selectedProjectId) {
+      setSelectedProjectId(userProjects[0].projectId);
+    }
+  }, [userProjects, selectedProjectId]);
+
+  useEffect(() => {
+    if (projectsList.length > 0) {
+      const currentId = selectedProjectId || (userProjects[0]?.projectId) || projectsList.find(p => p.isActive === true || p.status === 'active')?.id || projectsList[0].id;
+      const proj = projectsList.find(p => p.id === currentId);
+      if (proj) setProjectData(proj);
+    }
+  }, [projectsList, selectedProjectId, userProjects]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -275,21 +340,41 @@ export default function UserDashboard() {
   const collected = projectData.collectedAmount || 975000;
   const percent = Math.min(Math.round((collected / target) * 100), 100);
 
-  const totalDistributed = distributions.filter(d => d.status === 'locked').reduce((acc, d) => acc + (d.totalDistributed || 0), 0);
-  const userDistShare = distributions.filter(d => d.status === 'locked').reduce((acc, d) => {
-    if (currentPlan === 'Silver') return acc + (d.silverShare || 0);
-    if (currentPlan === 'Gold') return acc + (d.silverShare || 0) + (d.goldShare || 0);
-    if (currentPlan === 'Platinum') return acc + (d.silverShare || 0) + (d.goldShare || 0) + (d.platinumShare || 0);
+  // Scoped Earnings metrics for selected project
+  const userDistributions = distributions.filter(d => d.projectId === selectedProjectId);
+  const userLockedDistributions = userDistributions.filter(d => d.status === 'locked');
+  
+  const projectUtilityEarnings = userLockedDistributions.reduce((acc, d) => {
+    if (activePlan === 'Silver') return acc + (d.silverUtilityShare || 0);
+    if (activePlan === 'Gold') return acc + (d.goldUtilityShare || 0);
+    if (activePlan === 'Platinum') return acc + (d.platinumUtilityShare || 0);
     return acc;
   }, 0);
-  const totalEarnings = (earnings.utilityPool || 0) + (earnings.greenImpactPool || 0) + (earnings.loyaltyPool || 0);
-  const pendingEarnings = distributions.filter(d => d.status === 'confirmed').reduce((acc, d) => {
-    if (currentPlan === 'Silver') return acc + (d.silverShare || 0);
-    if (currentPlan === 'Gold') return acc + (d.silverShare || 0) + (d.goldShare || 0);
-    if (currentPlan === 'Platinum') return acc + (d.silverShare || 0) + (d.goldShare || 0) + (d.platinumShare || 0);
+
+  const projectGreenEarnings = userLockedDistributions.reduce((acc, d) => {
+    if (activePlan === 'Gold') return acc + (d.goldGreenShare || 0);
+    if (activePlan === 'Platinum') return acc + (d.platinumGreenShare || 0);
     return acc;
   }, 0);
-  const availableBalance = totalEarnings;
+
+  const projectLoyaltyEarnings = userLockedDistributions.reduce((acc, d) => {
+    if (activePlan === 'Platinum') return acc + (d.platinumLoyaltyShare || 0);
+    return acc;
+  }, 0);
+
+  const projectTotalEarnings = projectUtilityEarnings + projectGreenEarnings + projectLoyaltyEarnings;
+
+  const projectPendingEarnings = userDistributions.filter(d => d.status === 'confirmed').reduce((acc, d) => {
+    if (activePlan === 'Silver') return acc + (d.silverUtilityShare || 0);
+    if (activePlan === 'Gold') return acc + (d.goldUtilityShare || 0) + (d.goldGreenShare || 0);
+    if (activePlan === 'Platinum') return acc + (d.platinumUtilityShare || 0) + (d.platinumGreenShare || 0) + (d.platinumLoyaltyShare || 0);
+    return acc;
+  }, 0);
+
+  const totalDistributed = projectTotalEarnings;
+  const totalEarnings = projectTotalEarnings;
+  const pendingEarnings = projectPendingEarnings;
+  const availableBalance = projectTotalEarnings;
 
   const planBenefits = {
     Silver: [
@@ -320,7 +405,7 @@ export default function UserDashboard() {
     ]
   };
 
-  const eligibleBenefits = planBenefits[currentPlan] || planBenefits.Gold;
+  const eligibleBenefits = planBenefits[activePlan] || planBenefits.Gold;
   const allBenefits = planBenefits.Platinum;
 
   const menuItems = [
@@ -335,14 +420,52 @@ export default function UserDashboard() {
     { id: 'settings', name: 'Settings', icon: Settings }
   ];
 
- const bg = 'bg-[#F7FBF9]';
-const cardBg = 'bg-white';
-const cardBorder = 'border-[#B7E4C7]';
-const textPrimary = 'text-black';
-const textSecondary = 'text-black';
-const inputBg = 'bg-[#F7FBF9]';
-  // Light mode is always on â€” darkMode kept as false so existing ternaries resolve correctly
+  const bg = 'bg-[#F7FBF9]';
+  const cardBg = 'bg-white';
+  const cardBorder = 'border-[#B7E4C7]';
+  const textPrimary = 'text-black';
+  const textSecondary = 'text-black';
+  const inputBg = 'bg-[#F7FBF9]';
+  
   const darkMode = false;
+
+  const renderMembershipCard = (projectMembership) => {
+    const pPlan = projectMembership?.planName || currentPlan;
+    const pBadge = getUserBadge(pPlan);
+    const pStatus = projectMembership?.status || userData?.membershipStatus || 'Pending';
+    const pDate = projectMembership ? new Date(projectMembership.date) : joinDate;
+    const pTxId = projectMembership?.transactionId || 'N/A';
+    const pAmount = projectMembership?.amount || planAmounts[pPlan] || 15000;
+    const pProjName = projectMembership?.projectName || 'No project funded';
+
+    return (
+      <div key={projectMembership?.projectId || 'empty'} className={`bg-gradient-to-br ${pPlan === 'Silver' ? 'from-slate-700 to-slate-900' : pPlan === 'Gold' ? 'from-emerald-950 to-[#042A1d]' : 'from-slate-900 via-cyan-950 to-[#042A1d] border-cyan-500/10'} rounded-[24px] p-6 border border-[#B7E4C7]`}>
+        <div className="flex justify-between items-start mb-4">
+          <div>
+            <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold font-sora uppercase border inline-block ${pBadge.class}`}>{pBadge.badge}</span>
+            <span className="text-[10px] text-slate-400 font-bold block uppercase mt-2">{pProjName}</span>
+            <h3 className={`text-xl font-black font-sora text-white mt-1`}>{pPlan} Plan</h3>
+            <p className="text-lg font-bold text-[#74E61F] mt-1">{formatRupee(pAmount)}</p>
+          </div>
+          <Shield className="w-10 h-10 text-[#74E61F] opacity-80" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 text-xs">
+          <div>
+            <span className="text-slate-400 block text-[10px]">Status</span>
+            <span className={`font-bold ${pStatus === 'Active' || pStatus === 'Paid' ? 'text-emerald-400' : 'text-amber-400'}`}>{pStatus}</span>
+          </div>
+          <div>
+            <span className="text-slate-400 block text-[10px]">Activation Date</span>
+            <span className="font-bold text-white">{pDate ? pDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'N/A'}</span>
+          </div>
+          <div>
+            <span className="text-slate-400 block text-[10px]">Transaction ID</span>
+            <span className="font-mono font-bold text-white text-[10px] truncate block max-w-[150px]" title={pTxId}>{pTxId}</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className={`min-h-screen ${bg} ${textPrimary} flex font-inter transition-colors duration-300 relative ${isImpersonating ? 'pt-10' : ''}`}>
@@ -432,51 +555,59 @@ const inputBg = 'bg-[#F7FBF9]';
                       Member ID: {memberId}  Joined {joinDate ? joinDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}
                     </p>
                   </div>
-                  <div className="mt-4 md:mt-0 px-4 py-3 bg-[#F7FBF9] rounded-2xl border border-[#B7E4C7] flex items-center space-x-3">
-                    <div className="w-2.5 h-2.5 bg-[#74E61F] rounded-full animate-pulse"></div>
-                    <div>
-                      <span className={`text-[10px] font-bold uppercase tracking-widest block ${textSecondary}`}>Active Project</span>
-                      <span className={`text-xs font-bold ${textPrimary}`}>Sonbhadra EV-1 ({projectData.status})</span>
+                  {userProjects.length <= 1 ? (
+                    <div className="mt-4 md:mt-0 px-4 py-3 bg-[#F7FBF9] rounded-2xl border border-[#B7E4C7] flex items-center space-x-3">
+                      <div className="w-2.5 h-2.5 bg-[#74E61F] rounded-full animate-pulse"></div>
+                      <div>
+                        <span className={`text-[10px] font-bold uppercase tracking-widest block ${textSecondary}`}>Active Project</span>
+                        <span className={`text-xs font-bold ${textPrimary}`}>{projectData.name || 'Sonbhadra EV-1'} ({projectData.status})</span>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="mt-4 md:mt-0 flex flex-wrap gap-2 items-center">
+                      {userProjects.map((up) => {
+                        const isActive = up.projectId === selectedProjectId;
+                        return (
+                          <button
+                            key={up.projectId}
+                            onClick={() => setSelectedProjectId(up.projectId)}
+                            className={`px-3.5 py-2.5 rounded-full border flex items-center space-x-2 text-xs font-bold transition-all cursor-pointer ${
+                              isActive
+                                ? 'bg-[#1B4332] text-white border-[#1B4332]'
+                                : 'bg-[#D8F3DC] text-[#1B4332] border-[#B7E4C7] hover:bg-[#B7E4C7]'
+                            }`}
+                          >
+                            <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-[#74E61F]' : 'bg-[#40916C]'} animate-pulse`}></div>
+                            <span>{up.projectName}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* User Data Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <QuickStat icon={<Award className="w-5 h-5" />} label="Package" value={currentPlan} color="text-[#74E61F]" bgColor="bg-[#74E61F]/10" borderColor="border-[#74E61F]/10" />
-                  <QuickStat icon={<Shield className="w-5 h-5" />} label="Membership Status" value={userData?.membershipStatus || 'Pending'} color={userData?.membershipStatus === 'Active' ? 'text-emerald-400' : 'text-amber-400'} bgColor="bg-emerald-500/10" borderColor="border-emerald-500/10" />
-                  <QuickStat icon={<Wallet className="w-5 h-5" />} label="Payment Status" value={userData?.paymentStatus || 'Unpaid'} color={userData?.paymentStatus === 'Paid' ? 'text-emerald-400' : 'text-amber-400'} bgColor="bg-amber-500/10" borderColor="border-amber-500/10" />
-                  <QuickStat icon={<Calendar className="w-5 h-5" />} label="Join Date" value={joinDate ? joinDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'N/A'} color="text-cyan-400" bgColor="bg-cyan-500/10" borderColor="border-cyan-500/10" />
+                  <QuickStat icon={<Award className="w-5 h-5" />} label="Package" value={activePlan} color="text-[#74E61F]" bgColor="bg-[#74E61F]/10" borderColor="border-[#74E61F]/10" />
+                  <QuickStat icon={<Shield className="w-5 h-5" />} label="Membership Status" value={activeMembershipStatus} color={activeMembershipStatus === 'Active' ? 'text-emerald-400' : 'text-amber-400'} bgColor="bg-emerald-500/10" borderColor="border-emerald-500/10" />
+                  <QuickStat icon={<Wallet className="w-5 h-5" />} label="Payment Status" value={activePaymentStatus} color={activePaymentStatus === 'Paid' ? 'text-emerald-400' : 'text-amber-400'} bgColor="bg-amber-500/10" borderColor="border-amber-500/10" />
+                  <QuickStat icon={<Calendar className="w-5 h-5" />} label="Join Date" value={activeJoinDate ? activeJoinDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'N/A'} color="text-cyan-400" bgColor="bg-cyan-500/10" borderColor="border-cyan-500/10" />
                 </div>
 
                 {/* Membership Package Card */}
-                <div className={`${cardBg} border ${cardBorder} rounded-[32px] p-6`}>
-                  <h3 className={`text-sm font-bold font-sora ${textPrimary} uppercase tracking-wider mb-4`}>Membership Package</h3>
-                  <div className={`bg-gradient-to-br ${currentPlan === 'Silver' ? 'from-slate-700 to-slate-900' : currentPlan === 'Gold' ? 'from-emerald-950 to-[#042A1d]' : 'from-slate-900 via-cyan-950 to-[#042A1d] border-cyan-500/10'} rounded-[24px] p-6 border border-[#B7E4C7]`}>
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold font-sora uppercase border inline-block ${badgeInfo.class}`}>{badgeInfo.badge}</span>
-                        <h3 className={`text-xl font-black font-sora text-white mt-2`}>{currentPlan} Plan</h3>
-                        <p className="text-lg font-bold text-[#74E61F] mt-1">{formatRupee(planAmounts[currentPlan] || 15000)}</p>
-                      </div>
-                      <Shield className="w-10 h-10 text-[#74E61F] opacity-80" />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 text-xs">
-                      <div>
-                        <span className="text-slate-400 block">Status</span>
-                        <span className={`font-bold ${userData?.membershipStatus === 'Active' ? 'text-emerald-400' : 'text-amber-400'}`}>{userData?.membershipStatus || 'Pending'}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block">Activation Date</span>
-                        <span className="font-bold text-white">{joinDate ? joinDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'N/A'}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block">Transaction ID</span>
-                        <span className="font-mono font-bold text-white text-[10px]">{payments[0]?.transactionId || 'N/A'}</span>
-                      </div>
+                {userProjects.length <= 1 ? (
+                  <div className={`${cardBg} border ${cardBorder} rounded-[32px] p-6`}>
+                    <h3 className={`text-sm font-bold font-sora ${textPrimary} uppercase tracking-wider mb-4`}>Membership Package</h3>
+                    {renderMembershipCard(userProjects[0])}
+                  </div>
+                ) : (
+                  <div className={`${cardBg} border ${cardBorder} rounded-[32px] p-6`}>
+                    <h3 className={`text-sm font-bold font-sora ${textPrimary} uppercase tracking-wider mb-4`}>Membership Packages</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {userProjects.map(up => renderMembershipCard(up))}
                     </div>
                   </div>
-                </div>
+                )}
 
                 {/* Quick Access */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -513,20 +644,20 @@ const inputBg = 'bg-[#F7FBF9]';
               </div>
             )}
 
-            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• EARNINGS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {/* ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  EARNINGS ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  */}
             {activeTab === 'earnings' && (
               <div className="space-y-8">
                 <div className={`${cardBg} border ${cardBorder} p-8 rounded-[32px]`}>
                   <h3 className={`text-xl font-extrabold font-sora ${textPrimary} mb-2`}>Earnings Overview</h3>
-                  <p className={`text-xs ${textSecondary} mb-6`}>Pool and reward earnings based on your {currentPlan} membership</p>
+                  <p className={`text-xs ${textSecondary} mb-6`}>Pool and reward earnings based on your {activePlan} membership</p>
 
                   {/* Pool Cards */}
                   <div className="mb-6">
                     <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider mb-3`}>Total Company Pools</h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <PoolCard title="Total Utility Pool" amount={projectData?.totalUtilityPool || 0} icon={<Leaf className="w-4 h-4" />} color="bg-[#74E61F]/10 text-[#74E61F] border-[#74E61F]/10" locked={false} />
-                      <PoolCard title="Total Green Impact Pool" amount={projectData?.totalGreenImpactPool || 0} icon={<Shield className="w-4 h-4" />} color="bg-emerald-500/10 text-emerald-400 border-emerald-500/10" locked={isSilver} />
-                      <PoolCard title="Total Loyalty Pool" amount={projectData?.totalLoyaltyPool || 0} icon={<Award className="w-4 h-4" />} color="bg-cyan-500/10 text-cyan-400 border-cyan-500/10" locked={isSilver || isGold} />
+                      <PoolCard title="Total Green Impact Pool" amount={projectData?.totalGreenImpactPool || 0} icon={<Shield className="w-4 h-4" />} color="bg-emerald-500/10 text-emerald-400 border-emerald-500/10" locked={activePlan === 'Silver'} />
+                      <PoolCard title="Total Loyalty Pool" amount={projectData?.totalLoyaltyPool || 0} icon={<Award className="w-4 h-4" />} color="bg-cyan-500/10 text-cyan-400 border-cyan-500/10" locked={activePlan === 'Silver' || activePlan === 'Gold'} />
                     </div>
                   </div>
 
@@ -534,9 +665,9 @@ const inputBg = 'bg-[#F7FBF9]';
                   <div className="mb-6">
                     <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider mb-3`}>My Earned Rewards</h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <RewardCard title="My Utility Reward" amount={earnings.utilityPool || 0} icon={<Gift className="w-4 h-4" />} color="bg-[#74E61F]/10 text-[#74E61F] border-[#74E61F]/10" locked={false} />
-                      <RewardCard title="My Green Impact Reward" amount={earnings.greenImpactPool || 0} icon={<Gift className="w-4 h-4" />} color="bg-emerald-500/10 text-emerald-400 border-emerald-500/10" locked={isSilver} />
-                      <RewardCard title="My Loyalty Reward" amount={earnings.loyaltyPool || 0} icon={<Gift className="w-4 h-4" />} color="bg-cyan-500/10 text-cyan-400 border-cyan-500/10" locked={isSilver || isGold} />
+                      <RewardCard title="My Utility Reward" amount={projectUtilityEarnings} icon={<Gift className="w-4 h-4" />} color="bg-[#74E61F]/10 text-[#74E61F] border-[#74E61F]/10" locked={false} />
+                      <RewardCard title="My Green Impact Reward" amount={projectGreenEarnings} icon={<Gift className="w-4 h-4" />} color="bg-emerald-500/10 text-emerald-400 border-emerald-500/10" locked={activePlan === 'Silver'} />
+                      <RewardCard title="My Loyalty Reward" amount={projectLoyaltyEarnings} icon={<Gift className="w-4 h-4" />} color="bg-cyan-500/10 text-cyan-400 border-cyan-500/10" locked={activePlan === 'Silver' || activePlan === 'Gold'} />
                     </div>
                   </div>
 
@@ -567,14 +698,14 @@ const inputBg = 'bg-[#F7FBF9]';
                         </tr>
                       </thead>
                       <tbody className="divide-y ${cardBorder} text-xs font-medium">
-                        {distributions.filter(d => d.status === 'locked').map((d) => {
+                        {distributions.filter(d => d.projectId === selectedProjectId && d.status === 'locked').map((d) => {
                           let uShare = 0, gShare = 0, lShare = 0;
-                          if (currentPlan === 'Silver') {
+                          if (activePlan === 'Silver') {
                             uShare = d.silverUtilityShare || 0;
-                          } else if (currentPlan === 'Gold') {
+                          } else if (activePlan === 'Gold') {
                             uShare = d.goldUtilityShare || 0;
                             gShare = d.goldGreenShare || 0;
-                          } else if (currentPlan === 'Platinum') {
+                          } else if (activePlan === 'Platinum') {
                             uShare = d.platinumUtilityShare || 0;
                             gShare = d.platinumGreenShare || 0;
                             lShare = d.platinumLoyaltyShare || 0;
@@ -586,7 +717,7 @@ const inputBg = 'bg-[#F7FBF9]';
                               <td className={`p-4 ${textSecondary}`}>
                                 {d.distributedAt?.toDate ? new Date(d.distributedAt.toDate()).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}
                               </td>
-                              <td className="p-4 font-bold text-[#1B4332]">{d.projectId ? 'Active Project' : 'General'}</td>
+                              <td className="p-4 font-bold text-[#1B4332]">{projectData.name || 'Active Project'}</td>
                               <td className="p-4 text-right text-[#1B4332] font-semibold">{formatRupee(uShare)}</td>
                               <td className="p-4 text-right text-[#1B4332] font-semibold">{formatRupee(gShare)}</td>
                               <td className="p-4 text-right text-[#1B4332] font-semibold">{formatRupee(lShare)}</td>
@@ -597,7 +728,7 @@ const inputBg = 'bg-[#F7FBF9]';
                             </tr>
                           );
                         })}
-                        {distributions.filter(d => d.status === 'locked').length === 0 && (
+                        {distributions.filter(d => d.projectId === selectedProjectId && d.status === 'locked').length === 0 && (
                           <tr><td colSpan="7" className={`py-8 text-center ${textSecondary} text-xs`}>No distributions yet.</td></tr>
                         )}
                       </tbody>
@@ -607,7 +738,7 @@ const inputBg = 'bg-[#F7FBF9]';
               </div>
             )}
 
-            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• PAYMENTS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {/* ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  PAYMENTS ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  */}
             {activeTab === 'payments' && (
               <div className={`${cardBg} border ${cardBorder} p-8 md:p-10 rounded-[32px] space-y-6`}>
                 <div>
@@ -616,7 +747,7 @@ const inputBg = 'bg-[#F7FBF9]';
                 </div>
                 {paymentsLoading ? (
                   <div className={`py-10 text-center ${textSecondary} text-xs`}>Loading payments...</div>
-                ) : payments.length === 0 ? (
+                ) : activeProjectPayments.length === 0 ? (
                   <div className={`py-12 text-center ${textSecondary} font-semibold border border-dashed border-[#B7E4C7] rounded-2xl text-xs`}>No transactions found.</div>
                 ) : (
                   <div className="overflow-x-auto rounded-2xl border ${cardBorder} ${darkMode ? 'bg-[#F7FBF9]' : 'bg-white'}">
@@ -632,7 +763,7 @@ const inputBg = 'bg-[#F7FBF9]';
                         </tr>
                       </thead>
                       <tbody className="divide-y ${cardBorder} text-xs font-medium">
-                        {payments.map((tx) => (
+                        {activeProjectPayments.map((tx) => (
                           <tr key={tx.id} className={`${darkMode ? 'hover:bg-white/5 text-[#2D3748]' : 'hover:bg-slate-50 text-slate-600'} transition-colors`}>
                             <td className={`p-4 font-mono font-bold uppercase ${textPrimary}`}>{tx.transactionId}</td>
                             <td className="p-4">{tx.plan} Plan</td>
@@ -656,7 +787,7 @@ const inputBg = 'bg-[#F7FBF9]';
               </div>
             )}
 
-            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• PROJECT â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {/* â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â•  PROJECT â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â•  */}
             {activeTab === 'project' && (
               <div className={`${cardBg} border ${cardBorder} p-8 md:p-10 rounded-[32px] space-y-8`}>
                 <div>
@@ -683,14 +814,14 @@ const inputBg = 'bg-[#F7FBF9]';
                     <div className={`p-5 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} rounded-2xl border ${cardBorder}`}>
                       <h4 className={`text-sm font-bold font-sora ${textPrimary} mb-3`}>{projectData.location || 'Sonbhadra, Uttar Pradesh'}</h4>
                       <div className="grid grid-cols-2 gap-4">
-                        <ProjectStat label="Project Name" value="Sonbhadra EV-1" color="text-[#74E61F]"/>
+                        <ProjectStat label="Project Name" value={projectData.name || 'Active Project'} color="text-[#74E61F]"/>
                         <ProjectStat label="Status" value={projectData.status || 'Operational'} color="text-[#74E61F]" />
                         <ProjectStat label="Funding Goal" value={formatRupee(target)} color="text-[#74E61F]"/>
                         <ProjectStat label="Funding Collected" value={formatRupee(collected)} color="text-[#74E61F]"/>
                       </div>
                     </div>
                     <div className={`p-5 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} rounded-2xl border ${cardBorder} space-y-3`}>
-                      <ProjectStat label="Your Contribution" value={formatRupee(planAmounts[currentPlan] || 15000)} color="text-[#74E61F]" />
+                      <ProjectStat label="Your Contribution" value={formatRupee(selectedProjMembership?.amount || planAmounts[activePlan] || 15000)} color="text-[#74E61F]" />
                       <div>
                         <div className="flex justify-between text-xs mb-1">
                           <span className={textSecondary}>Progress</span>
@@ -707,20 +838,20 @@ const inputBg = 'bg-[#F7FBF9]';
               </div>
             )}
 
-            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• BENEFITS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {/* ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  BENEFITS ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  */}
             {activeTab === 'benefits' && (
               <div className={`${cardBg} border ${cardBorder} p-8 md:p-10 rounded-[32px] space-y-8`}>
                 <div>
                   <h3 className={`text-xl font-extrabold font-sora ${textPrimary}`}>Membership Benefits</h3>
-                  <p className={`text-xs mt-1 ${textSecondary}`}>Benefits available with your {currentPlan} package</p>
+                  <p className={`text-xs mt-1 ${textSecondary}`}>Benefits available with your {activePlan} package</p>
                 </div>
 
-                <div className={`bg-gradient-to-br ${currentPlan === 'Silver' ? 'from-slate-700 to-slate-900' : currentPlan === 'Gold' ? 'from-emerald-950 to-[#042A1d]' : 'from-slate-900 via-cyan-950 to-[#042A1d]'} rounded-[28px] p-8 border border-[#B7E4C7] min-h-48 flex flex-col justify-between shadow-2xl relative overflow-hidden`}>
+                <div className={`bg-gradient-to-br ${activePlan === 'Silver' ? 'from-slate-700 to-slate-900' : activePlan === 'Gold' ? 'from-emerald-950 to-[#042A1d]' : 'from-slate-900 via-cyan-950 to-[#042A1d]'} rounded-[28px] p-8 border border-[#B7E4C7] min-h-48 flex flex-col justify-between shadow-2xl relative overflow-hidden`}>
                   <div className="absolute top-0 right-0 w-36 h-36 bg-[#74E61F]/5 rounded-full blur-2xl"></div>
                   <div className="flex justify-between items-start relative z-10">
                     <div>
                       <span className="text-[10px] font-bold tracking-widest text-[#74E61F] uppercase">STOSHI Green Energy</span>
-                      <h4 className="text-lg font-black font-sora text-white mt-1 capitalize">{currentPlan} Plan</h4>
+                      <h4 className="text-lg font-black font-sora text-white mt-1 capitalize">{activePlan} Plan</h4>
                       <p className="text-xs text-slate-400 mt-1">{userData?.name}</p>
                     </div>
                     <Shield className="w-8 h-8 text-[#74E61F]" />
@@ -734,7 +865,7 @@ const inputBg = 'bg-[#F7FBF9]';
                   <div>
                     <h4 className={`text-sm font-bold font-sora ${textPrimary} uppercase tracking-wider mb-4 flex items-center`}>
                       <Check className="w-4 h-4 text-emerald-400 mr-2" />
-                      Your Benefits ({currentPlan})
+                      Your Benefits ({activePlan})
                     </h4>
                     <ul className="space-y-3">
                       {eligibleBenefits.map((b, i) => (
@@ -762,8 +893,8 @@ const inputBg = 'bg-[#F7FBF9]';
                         </li>
                       ))}
                     </ul>
-                    {currentPlan !== 'Platinum' && (
-                      <button onClick={() => navigate(`/payment?plan=Platinum`)}
+                    {activePlan !== 'Platinum' && (
+                      <button onClick={() => navigate(`/payment?plan=Platinum&projectId=${selectedProjectId || ''}`)}
                         className="mt-4 px-4 py-2.5 bg-cyan-400 text-slate-950 font-bold rounded-xl text-xs uppercase cursor-pointer hover:bg-white transition">
                         Upgrade to Unlock All
                       </button>
@@ -817,7 +948,7 @@ const inputBg = 'bg-[#F7FBF9]';
               </div>
             )}
 
-            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• NOTIFICATIONS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {/* ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  NOTIFICATIONS ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  */}
             {activeTab === 'notifications' && (
               <div className={`${cardBg} border ${cardBorder} p-8 md:p-10 rounded-[32px] space-y-6`}>
                 <div>
@@ -827,29 +958,29 @@ const inputBg = 'bg-[#F7FBF9]';
 
                 <div className="space-y-4">
                   <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider`}>Distribution Alerts</h4>
-                  {distributions.filter(d => d.status === 'locked').length > 0 ? (
-                    distributions.filter(d => d.status === 'locked').slice(0, 3).map((d, i) => (
+                  {distributions.filter(d => d.projectId === selectedProjectId && d.status === 'locked').length > 0 ? (
+                    distributions.filter(d => d.projectId === selectedProjectId && d.status === 'locked').slice(0, 3).map((d, i) => (
                       <NotificationItem key={d.id || i}
                         icon={<Gift className="w-4 h-4" />}
                         title="Distribution Complete"
-                        desc={`A distribution of ${formatRupee(d.totalDistributed)} has been processed. Your share: ${formatRupee(currentPlan === 'Silver' ? d.silverShare : currentPlan === 'Gold' ? d.goldShare : d.platinumShare)}`}
+                        desc={`A distribution of ${formatRupee(d.totalDistributed)} has been processed. Your share: ${formatRupee(activePlan === 'Silver' ? d.silverUtilityShare : activePlan === 'Gold' ? (d.goldUtilityShare + d.goldGreenShare) : (d.platinumUtilityShare + d.platinumGreenShare + d.platinumLoyaltyShare))}`}
                         time={d.distributedAt?.toDate ? new Date(d.distributedAt.toDate()).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Recent'}
                         color="bg-[#74E61F]/10 text-[#74E61F]" />
                     ))
                   ) : (
-                    <NotificationItem icon={<Info className="w-4 h-4" />} title="No Distributions" desc="No distributions have been processed yet." time="â€”" color="bg-slate-500/10 text-slate-400" />
+                    <NotificationItem icon={<Info className="w-4 h-4" />} title="No Distributions" desc="No distributions have been processed yet." time="—" color="bg-slate-500/10 text-slate-400" />
                   )}
                 </div>
 
                 <div className="space-y-4">
                   <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider`}>Membership Updates</h4>
-                  <NotificationItem icon={<Award className="w-4 h-4" />} title={`${currentPlan} Plan Active`} desc={`Your ${currentPlan} membership is ${userData?.membershipStatus || 'Pending'}.`} time={joinDate ? joinDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'} color="bg-emerald-500/10 text-emerald-400" />
+                  <NotificationItem icon={<Award className="w-4 h-4" />} title={`${activePlan} Plan Active`} desc={`Your ${activePlan} membership is ${activeMembershipStatus}.`} time={activeJoinDate ? activeJoinDate.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'} color="bg-emerald-500/10 text-emerald-400" />
                 </div>
 
                 <div className="space-y-4">
                   <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider`}>Payment Updates</h4>
-                  {payments.length > 0 ? (
-                    payments.slice(0, 3).map((tx, i) => (
+                  {activeProjectPayments.length > 0 ? (
+                    activeProjectPayments.slice(0, 3).map((tx, i) => (
                       <NotificationItem key={tx.id || i}
                         icon={<Wallet className="w-4 h-4" />}
                         title="Payment Confirmed"
@@ -858,13 +989,13 @@ const inputBg = 'bg-[#F7FBF9]';
                         color="bg-[#74E61F]/10 text-[#74E61F]" />
                     ))
                   ) : (
-                    <NotificationItem icon={<Info className="w-4 h-4" />} title="No Payments" desc="No payment records found." time="â€”" color="bg-slate-500/10 text-slate-400" />
+                    <NotificationItem icon={<Info className="w-4 h-4" />} title="No Payments" desc="No payment records found." time="—" color="bg-slate-500/10 text-slate-400" />
                   )}
                 </div>
               </div>
             )}
 
-            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• REPORTS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {/* ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  REPORTS ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  */}
             {activeTab === 'reports' && (
               <div className={`${cardBg} border ${cardBorder} p-8 md:p-10 rounded-[32px] space-y-6`}>
                 <div>
@@ -876,41 +1007,41 @@ const inputBg = 'bg-[#F7FBF9]';
                   <ReportCard title="Earnings Report" description="Download your pool earnings summary"
                     onExport={() => {
                       const data = [
-                        { Pool: 'Utility Pool', Amount: earnings.utilityPool || 0 },
-                        { Pool: 'Green Impact Pool', Amount: earnings.greenImpactPool || 0 },
-                        { Pool: 'Loyalty Pool', Amount: earnings.loyaltyPool || 0 }
+                        { Pool: 'Utility Pool', Amount: projectUtilityEarnings },
+                        { Pool: 'Green Impact Pool', Amount: projectGreenEarnings },
+                        { Pool: 'Loyalty Pool', Amount: projectLoyaltyEarnings }
                       ];
-                      exportToCSV(data, 'earnings_report', ['Pool', 'Amount']);
+                      exportToCSV(data, `earnings_report_${projectData.name || 'project'}`, ['Pool', 'Amount']);
                     }}
                     count="3 pools" icon={<TrendingUp className="w-5 h-5" />} darkMode={darkMode} />
                   <ReportCard title="Distribution Report" description="Download distribution history"
                     onExport={() => {
                       exportToCSV(
-                        distributions.filter(d => d.status === 'locked').map(d => ({
+                        distributions.filter(d => d.projectId === selectedProjectId && d.status === 'locked').map(d => ({
                           Date: d.distributedAt?.toDate ? d.distributedAt.toDate().toLocaleDateString('en-IN') : 'N/A',
                           Amount: d.totalDistributed || 0,
-                          Share: currentPlan === 'Silver' ? d.silverShare : currentPlan === 'Gold' ? d.goldShare : d.platinumShare
+                          Share: activePlan === 'Silver' ? d.silverUtilityShare : activePlan === 'Gold' ? (d.goldUtilityShare + d.goldGreenShare) : (d.platinumUtilityShare + d.platinumGreenShare + d.platinumLoyaltyShare)
                         })),
-                        'distribution_report',
+                        `distribution_report_${projectData.name || 'project'}`,
                         ['Date', 'Amount', 'Share']
                       );
                     }}
-                    count={`${distributions.filter(d => d.status === 'locked').length} distributions`} icon={<BarChart3 className="w-5 h-5" />} darkMode={darkMode} />
+                    count={`${distributions.filter(d => d.projectId === selectedProjectId && d.status === 'locked').length} distributions`} icon={<BarChart3 className="w-5 h-5" />} darkMode={darkMode} />
                   <ReportCard title="Transaction Report" description="Download payment history"
                     onExport={() => {
                       exportToCSV(
-                        payments.map(p => ({
+                        activeProjectPayments.map(p => ({
                           TransactionID: p.transactionId,
                           Plan: p.plan,
                           Amount: p.amount,
                           Date: new Date(p.date).toLocaleDateString('en-IN'),
                           Status: p.status
                         })),
-                        'transaction_report',
+                        `transaction_report_${projectData.name || 'project'}`,
                         ['TransactionID', 'Plan', 'Amount', 'Date', 'Status']
                       );
                     }}
-                    count={`${payments.length} transactions`} icon={<FileText className="w-5 h-5" />} darkMode={darkMode} />
+                    count={`${activeProjectPayments.length} transactions`} icon={<FileText className="w-5 h-5" />} darkMode={darkMode} />
                 </div>
               </div>
             )}

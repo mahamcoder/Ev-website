@@ -126,7 +126,7 @@ export default function SignUp() {
           </div>
 
           {/* Plan */}
-          <div className="space-y-1.5">
+          {/* <div className="space-y-1.5">
             <label className={labelClass}>Selected Plan</label>
             <select name="plan" value={formData.plan} onChange={handleChange}
               className="w-full px-4 py-3 rounded-2xl bg-[#F7FBF9] border border-[#B7E4C7] focus:border-[#40916C] focus:outline-none text-sm font-medium text-[#2D3748] transition-colors appearance-none cursor-pointer">
@@ -135,7 +135,7 @@ export default function SignUp() {
               <option value="Platinum">Platinum Plan (30,000)</option>
             </select>
             
-          </div>
+          </div> */}
 
           <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}
             type="submit" disabled={loading}

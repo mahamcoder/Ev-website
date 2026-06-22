@@ -13,6 +13,7 @@ export function Router({ children }) {
   const [location, setLocation] = useState({
     pathname: window.location.pathname,
     search: window.location.search,
+    state: window.history.state?._routerState || null,
   });
 
   useEffect(() => {
@@ -20,6 +21,7 @@ export function Router({ children }) {
       setLocation({
         pathname: window.location.pathname,
         search: window.location.search,
+        state: window.history.state?._routerState || null,
       });
     };
     window.addEventListener('popstate', onPop);
@@ -27,14 +29,18 @@ export function Router({ children }) {
   }, []);
 
   const navigate = useCallback((to, options = {}) => {
+    // Support both navigate(path) and navigate(path, { state, replace })
+    const routerState = options.state || null;
+    const historyState = routerState ? { _routerState: routerState } : {};
     if (options.replace) {
-      window.history.replaceState({}, '', to);
+      window.history.replaceState(historyState, '', to);
     } else {
-      window.history.pushState({}, '', to);
+      window.history.pushState(historyState, '', to);
     }
     setLocation({
       pathname: window.location.pathname,
       search: window.location.search,
+      state: routerState,
     });
   }, []);
 
@@ -51,6 +57,7 @@ export function useNavigate() {
 }
 
 export function useLocation() {
+  // Returns { pathname, search, state } — state is whatever was passed via navigate(path, { state })
   return useContext(RouterContext).location;
 }
 

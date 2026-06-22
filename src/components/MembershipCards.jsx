@@ -97,7 +97,7 @@ export default function MembershipCards({ onPledge, remainingCapacity, activePro
       colors: ['#042A1d', '#105D3D', '#74E61F', '#22C55E']
     });
 
-    onPledge(planKey);
+    onPledge(planKey, amount);
   };
 
   const formatRupee = (value) => {
