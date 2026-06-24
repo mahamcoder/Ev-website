@@ -21,7 +21,7 @@ export default function Footer({ onScrollToSection, onOpenPolicy }) {
           "Accept": "application/json"
         },
         body: JSON.stringify({
-          access_key: "ce02baa5-2bcd-4585-aa2f-9d0488062c93",
+          access_key: "c6b1d2d6-0aea-4603-91bd-24a557c3d9eb",
           subject: `New Contact Form Submission from ${contactForm.name}`,
           name: contactForm.name,
           email: contactForm.email,

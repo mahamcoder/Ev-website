@@ -1,7 +1,15 @@
+// export const BANK_DETAILS = {
+//   accountHolder: "Stoshi Green Energy Pvt Ltd",
+//   accountNumber: "921020045678912",
+//   ifsc: "UTIB0001234",
+//   branch: "Sonbhadra Branch",
+//   accountType: "Current Account"
+// };
 export const BANK_DETAILS = {
-  accountHolder: "Stoshi Green Energy Pvt Ltd",
-  accountNumber: "921020045678912",
-  ifsc: "UTIB0001234",
+  bankName: "Union Bank of India",
+  accountHolder: "KUBERX",
+  accountNumber: "701501010050402",
+  ifsc: "UBIN0570150",
   branch: "Sonbhadra Branch",
   accountType: "Current Account"
 };

@@ -76,7 +76,7 @@ export default function Home() {
 
       <WhoWeAre />
 
-      {activeProjects.length > 0 && (
+      {activeProjects.length > 1 && (
         <section className="pt-16 pb-4 bg-brand-light">
           <div className="max-w-7xl mx-auto px-4 md:px-8 flex flex-col items-center">
             <span className="text-[11px] font-extrabold tracking-widest text-[#3B6D11] uppercase block mb-2 font-sora">

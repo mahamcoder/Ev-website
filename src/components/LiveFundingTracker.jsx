@@ -306,24 +306,24 @@ export default function LiveFundingTracker({ activeProject }) {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.4, delay: 0.2 }}
-              className="grid grid-cols-3 gap-3"
+              className="grid grid-cols-3 gap-1.5 sm:gap-3"
             >
               {activeProject.silverPrice > 0 && (
-                <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm text-center">
+                <div className="bg-white rounded-2xl p-2.5 sm:p-4 border border-slate-100 shadow-sm text-center">
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Silver</span>
-                  <span className="text-sm font-black font-sora text-slate-500 block mt-0.5">{formatRupee(activeProject.silverPrice)}</span>
+                  <span className="text-xs sm:text-sm font-black font-sora text-slate-500 block mt-0.5">{formatRupee(activeProject.silverPrice)}</span>
                 </div>
               )}
               {activeProject.goldPrice > 0 && (
-                <div className="bg-white rounded-2xl p-4 border border-amber-100 shadow-sm text-center">
+                <div className="bg-white rounded-2xl p-2.5 sm:p-4 border border-amber-100 shadow-sm text-center">
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Gold</span>
-                  <span className="text-sm font-black font-sora text-amber-500 block mt-0.5">{formatRupee(activeProject.goldPrice)}</span>
+                  <span className="text-xs sm:text-sm font-black font-sora text-amber-500 block mt-0.5">{formatRupee(activeProject.goldPrice)}</span>
                 </div>
               )}
               {activeProject.platinumPrice > 0 && (
-                <div className="bg-white rounded-2xl p-4 border border-cyan-100 shadow-sm text-center">
+                <div className="bg-white rounded-2xl p-2.5 sm:p-4 border border-cyan-100 shadow-sm text-center">
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Platinum</span>
-                  <span className="text-sm font-black font-sora text-cyan-500 block mt-0.5">{formatRupee(activeProject.platinumPrice)}</span>
+                  <span className="text-xs sm:text-sm font-black font-sora text-cyan-500 block mt-0.5">{formatRupee(activeProject.platinumPrice)}</span>
                 </div>
               )}
             </motion.div>

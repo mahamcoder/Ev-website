@@ -755,10 +755,10 @@ export default function Payment() {
     setErrorMessage('');
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('upload_preset', 'Evwebsite');
+    formData.append('upload_preset', 'StoshiEnergy');
     
     try {
-      const response = await fetch('https://api.cloudinary.com/v1_1/ddiryhexg/image/upload', {
+      const response = await fetch('https://api.cloudinary.com/v1_1/do2fuiszt/image/upload', {
         method: 'POST',
         body: formData,
       });
@@ -1470,7 +1470,7 @@ export default function Payment() {
                     >
                       <option value="razorpay">Razorpay (UPI / card / netbanking)</option>
                       <option value="bank_transfer">Bank Transfer</option>
-                      <option value="crypto">Crypto</option>
+                      {/* <option value="crypto">Crypto</option> */}
                     </select>
                   </div>
 

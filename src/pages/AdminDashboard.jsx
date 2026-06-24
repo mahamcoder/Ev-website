@@ -298,12 +298,18 @@ export default function AdminDashboard() {
       return matchesSearch && matchesPackage;
     });
 
-  const filteredPayments = activeProjPayments.filter(p =>
-    p.userName?.toLowerCase().includes(paymentSearch.toLowerCase()) ||
-    p.userEmail?.toLowerCase().includes(paymentSearch.toLowerCase()) ||
-    p.transactionId?.toLowerCase().includes(paymentSearch.toLowerCase()) ||
-    p.plan?.toLowerCase().includes(paymentSearch.toLowerCase())
-  );
+  const filteredPayments = activeProjPayments
+    .filter(p => {
+      // Only show payments that belong to an existing project
+      const pId = p.projectId || (projectsList[0]?.id || '');
+      return projectsList.some(proj => proj.id === pId);
+    })
+    .filter(p =>
+      p.userName?.toLowerCase().includes(paymentSearch.toLowerCase()) ||
+      p.userEmail?.toLowerCase().includes(paymentSearch.toLowerCase()) ||
+      p.transactionId?.toLowerCase().includes(paymentSearch.toLowerCase()) ||
+      p.plan?.toLowerCase().includes(paymentSearch.toLowerCase())
+    );
 
   const filteredCompanyIncomeList = companyIncomeList.filter(inc => inc.projectId === selectedProjectId);
   const filteredDistributionsList = distributionsList.filter(d => d.projectId === selectedProjectId);
@@ -736,10 +742,46 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteProject = async (projectId) => {
-    if (!window.confirm('Delete this project permanently?')) return;
+    if (!window.confirm('Delete this project? This will also remove all associated payments, members, distributions, and income records.')) return;
     try {
-      await deleteDoc(doc(db, 'projects', projectId));
-      await logActivity(currentUser?.uid, userData?.name, 'Delete Project', `Deleted project ${projectId}`);
+      const batch = writeBatch(db);
+
+      // Delete the project itself
+      batch.delete(doc(db, 'projects', projectId));
+
+      // Delete associated payments
+      const paymentsSnap = await getDocs(query(collection(db, 'payments'), where('projectId', '==', projectId)));
+      paymentsSnap.forEach(d => batch.delete(d.ref));
+
+      // Reset users belonging to this project
+      const usersSnap = await getDocs(query(collection(db, 'users'), where('projectId', '==', projectId)));
+      usersSnap.forEach(d => batch.update(d.ref, {
+        projectId: null,
+        membershipStatus: 'Pending',
+        paymentStatus: 'Unpaid',
+        membershipType: '',
+      }));
+
+      // Delete distributions
+      const distSnap = await getDocs(query(collection(db, 'distributions'), where('projectId', '==', projectId)));
+      distSnap.forEach(d => batch.delete(d.ref));
+
+      // Delete company income records
+      const incomeSnap = await getDocs(query(collection(db, 'companyIncome'), where('projectId', '==', projectId)));
+      incomeSnap.forEach(d => batch.delete(d.ref));
+
+      // Delete waitlist entries
+      const waitlistSnap = await getDocs(query(collection(db, 'waitlist'), where('projectId', '==', projectId)));
+      waitlistSnap.forEach(d => batch.delete(d.ref));
+
+      await batch.commit();
+      await logActivity(currentUser?.uid, userData?.name, 'Delete Project', `Deleted project ${projectId} and all associated data`);
+
+      // If the deleted project was selected, switch to another
+      if (selectedProjectId === projectId) {
+        const remaining = projectsList.filter(p => p.id !== projectId);
+        setSelectedProjectId(remaining[0]?.id || '');
+      }
     } catch (err) { alert('Error: ' + err.message); }
   };
 

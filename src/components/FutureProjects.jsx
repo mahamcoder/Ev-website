@@ -50,7 +50,7 @@ export default function FutureProjects({ projects = [] }) {
 
       // 2. Post to Web3Forms for email alert
       const formData = new FormData();
-      formData.append("access_key", "ce02baa5-2bcd-4585-aa2f-9d0488062c93");
+      formData.append("access_key", "c6b1d2d6-0aea-4603-91bd-24a557c3d9eb");
       formData.append("subject", `New Waitlist Signup: ${nameInput} for ${selectedProject?.name || 'Upcoming Project'}`);
       formData.append("name", nameInput);
       formData.append("email", emailInput);
