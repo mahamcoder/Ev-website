@@ -137,10 +137,21 @@ export default function UserDashboard() {
   const projectGroups = groupPaymentsByProject();
 
   const userProjects = Object.entries(projectGroups).map(([pId, groupPayments]) => {
-    const latestPayment = groupPayments[0];
-    const totalAmount = groupPayments.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+    // Prefer the most recent SUCCESSFUL payment for status/amount/txId.
+    // Falls back to the most recent payment overall if none succeeded yet
+    // (e.g. still pending verification), so those states still show correctly.
+    const successfulPayments = groupPayments.filter(
+      p => p.status === 'Success' || p.status === 'Paid'
+    );
+    const latestPayment = successfulPayments[0] || groupPayments[0];
+
+    // Only count successful payments toward the amount actually paid —
+    // duplicate/failed retries should not inflate the total.
+    const totalAmount = successfulPayments.reduce((acc, curr) => acc + (curr.amount || 0), 0)
+      || (latestPayment?.amount || 0);
+
     const project = projectsList.find(pr => pr.id === pId);
-    
+
     let mStatus = 'Pending';
     let pStatus = 'Unpaid';
     if (latestPayment?.status === 'Success' || latestPayment?.status === 'Paid') {
@@ -153,7 +164,7 @@ export default function UserDashboard() {
       mStatus = 'Inactive';
       pStatus = 'Failed';
     }
-    
+
     return {
       projectId: pId,
       projectName: project?.name || 'Active Project',
@@ -343,7 +354,7 @@ export default function UserDashboard() {
   // Scoped Earnings metrics for selected project
   const userDistributions = distributions.filter(d => d.projectId === selectedProjectId);
   const userLockedDistributions = userDistributions.filter(d => d.status === 'locked');
-  
+
   const projectUtilityEarnings = userLockedDistributions.reduce((acc, d) => {
     if (activePlan === 'Silver') return acc + (d.silverUtilityShare || 0);
     if (activePlan === 'Gold') return acc + (d.goldUtilityShare || 0);
@@ -426,7 +437,7 @@ export default function UserDashboard() {
   const textPrimary = 'text-black';
   const textSecondary = 'text-black';
   const inputBg = 'bg-[#F7FBF9]';
-  
+
   const darkMode = false;
 
   const renderMembershipCard = (projectMembership) => {
@@ -542,7 +553,7 @@ export default function UserDashboard() {
         <AnimatePresence mode="wait">
           <motion.div key={activeTab} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }} transition={{ duration: 0.3 }} className="space-y-8">
 
-            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• DASHBOARD / OVERVIEW â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {/* DASHBOARD / OVERVIEW */}
             {activeTab === 'overview' && (
               <div className="space-y-8">
                 <div className={`flex flex-col md:flex-row justify-between items-start md:items-center ${cardBg} p-6 rounded-[32px] border ${cardBorder} backdrop-blur-sm`}>
@@ -644,14 +655,13 @@ export default function UserDashboard() {
               </div>
             )}
 
-            {/* ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  EARNINGS ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  */}
+            {/* EARNINGS */}
             {activeTab === 'earnings' && (
               <div className="space-y-8">
                 <div className={`${cardBg} border ${cardBorder} p-8 rounded-[32px]`}>
                   <h3 className={`text-xl font-extrabold font-sora ${textPrimary} mb-2`}>Earnings Overview</h3>
                   <p className={`text-xs ${textSecondary} mb-6`}>Pool and reward earnings based on your {activePlan} membership</p>
 
-                  {/* Pool Cards */}
                   <div className="mb-6">
                     <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider mb-3`}>Total Company Pools</h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -661,7 +671,6 @@ export default function UserDashboard() {
                     </div>
                   </div>
 
-                  {/* Reward Cards */}
                   <div className="mb-6">
                     <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider mb-3`}>My Earned Rewards</h4>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -671,7 +680,6 @@ export default function UserDashboard() {
                     </div>
                   </div>
 
-                  {/* Summary */}
                   <div className={`p-5 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} border ${cardBorder} rounded-2xl space-y-3 mb-6`}>
                     <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider`}>Earnings Summary</h4>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -682,7 +690,6 @@ export default function UserDashboard() {
                     </div>
                   </div>
 
-                  {/* Distribution History */}
                   <h4 className={`text-xs font-bold font-sora ${textPrimary} uppercase tracking-wider mb-3`}>Distribution History</h4>
                   <div className={`overflow-x-auto rounded-2xl border ${cardBorder} ${darkMode ? 'bg-[#F7FBF9]' : 'bg-white'}`}>
                     <table className="w-full text-left border-collapse">
@@ -738,7 +745,7 @@ export default function UserDashboard() {
               </div>
             )}
 
-            {/* ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  PAYMENTS ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  */}
+            {/* PAYMENTS */}
             {activeTab === 'payments' && (
               <div className={`${cardBg} border ${cardBorder} p-8 md:p-10 rounded-[32px] space-y-6`}>
                 <div>
@@ -787,7 +794,7 @@ export default function UserDashboard() {
               </div>
             )}
 
-            {/* â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â•  PROJECT â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â•  */}
+            {/* PROJECT */}
             {activeTab === 'project' && (
               <div className={`${cardBg} border ${cardBorder} p-8 md:p-10 rounded-[32px] space-y-8`}>
                 <div>
@@ -838,7 +845,7 @@ export default function UserDashboard() {
               </div>
             )}
 
-            {/* ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  BENEFITS ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  */}
+            {/* BENEFITS */}
             {activeTab === 'benefits' && (
               <div className={`${cardBg} border ${cardBorder} p-8 md:p-10 rounded-[32px] space-y-8`}>
                 <div>
@@ -904,7 +911,7 @@ export default function UserDashboard() {
               </div>
             )}
 
-            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• PROFILE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {/* PROFILE */}
             {activeTab === 'profile' && (
               <div className={`max-w-2xl ${cardBg} border ${cardBorder} p-8 md:p-10 rounded-[32px] space-y-8`}>
                 <div>
@@ -912,7 +919,6 @@ export default function UserDashboard() {
                   <p className={`text-xs mt-1 ${textSecondary}`}>Manage your personal information</p>
                 </div>
 
-                {/* Profile Header */}
                 <div className={`flex items-center space-x-4 p-6 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} rounded-2xl border ${cardBorder}`}>
                   <div className={`w-16 h-16 rounded-full ${darkMode ? 'bg-[#105D3D]' : 'bg-[#74E61F]/20'} text-[#74E61F] flex items-center justify-center font-bold text-2xl font-sora`}>
                     {userData?.name ? userData.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'U'}
@@ -948,7 +954,7 @@ export default function UserDashboard() {
               </div>
             )}
 
-            {/* ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  NOTIFICATIONS ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  */}
+            {/* NOTIFICATIONS */}
             {activeTab === 'notifications' && (
               <div className={`${cardBg} border ${cardBorder} p-8 md:p-10 rounded-[32px] space-y-6`}>
                 <div>
@@ -995,7 +1001,7 @@ export default function UserDashboard() {
               </div>
             )}
 
-            {/* ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  REPORTS ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═ ═  */}
+            {/* REPORTS */}
             {activeTab === 'reports' && (
               <div className={`${cardBg} border ${cardBorder} p-8 md:p-10 rounded-[32px] space-y-6`}>
                 <div>
@@ -1046,7 +1052,7 @@ export default function UserDashboard() {
               </div>
             )}
 
-            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• SETTINGS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+            {/* SETTINGS */}
             {activeTab === 'settings' && (
               <div className={`max-w-2xl ${cardBg} border ${cardBorder} p-8 md:p-10 rounded-[32px] space-y-8`}>
                 <div>
@@ -1054,7 +1060,6 @@ export default function UserDashboard() {
                   <p className={`text-xs mt-1 ${textSecondary}`}>Manage your account settings and preferences</p>
                 </div>
 
-                {/* Change Password */}
                 <div className={`p-6 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} border ${cardBorder} rounded-2xl space-y-4`}>
                   <h4 className={`text-sm font-bold font-sora ${textPrimary} uppercase tracking-wider`}>Change Password</h4>
                   {passwordStatus.success && (
@@ -1075,7 +1080,6 @@ export default function UserDashboard() {
                   </form>
                 </div>
 
-                {/* Notification Preferences */}
                 <div className={`p-6 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} border ${cardBorder} rounded-2xl space-y-4`}>
                   <h4 className={`text-sm font-bold font-sora ${textPrimary} uppercase tracking-wider`}>Notification Preferences</h4>
                   <div className="space-y-3">
@@ -1097,7 +1101,7 @@ export default function UserDashboard() {
   );
 }
 
-// â”€â”€â”€ SUB-COMPONENTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// SUB-COMPONENTS
 function QuickStat({ icon, label, value, color, bgColor, borderColor }) {
   return (
     <div className="p-5 bg-white rounded-3xl border border-[#B7E4C7] relative overflow-hidden">
@@ -1172,4 +1176,3 @@ function ToggleOption({ label, enabled, onChange, darkMode }) {
     </div>
   );
 }
-

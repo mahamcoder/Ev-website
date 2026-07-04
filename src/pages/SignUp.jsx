@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useSearchParams, Link } from '../router';
 import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, User, Mail, Phone, Lock, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, User, Mail, Phone, Lock, Eye, EyeOff, Tag } from 'lucide-react';
 
 export default function SignUp() {
   const { signUp } = useAuth();
@@ -12,7 +12,7 @@ export default function SignUp() {
   const redirectPath = searchParams.get('redirect');
 
   const [formData, setFormData] = useState({
-    name: '', email: '', phone: '', password: '', plan: initialPlan,
+    name: '', email: '', phone: '', password: '', plan: initialPlan, labelCode: '',
   });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -32,7 +32,7 @@ export default function SignUp() {
       setError('Password must be at least 6 characters.'); setLoading(false); return;
     }
     try {
-      await signUp(formData.email, formData.password, formData.name, formData.phone, formData.plan);
+      await signUp(formData.email, formData.password, formData.name, formData.phone, formData.plan, formData.labelCode);
       if (redirectPath) {
         navigate(redirectPath);
       } else {
@@ -106,6 +106,16 @@ export default function SignUp() {
               <Phone className={iconClass} />
               <input type="tel" name="phone" value={formData.phone} onChange={handleChange}
                 placeholder="+91 9876543210" className={inputClass} required />
+            </div>
+          </div>
+
+          {/* Label Code */}
+          <div className="space-y-1.5">
+            <label className={labelClass}>Label Code <span className="normal-case text-[#74E61F] font-semibold">(optional)</span></label>
+            <div className="relative">
+              <Tag className={iconClass} />
+              <input type="text" name="labelCode" value={formData.labelCode} onChange={handleChange}
+                placeholder="e.g. LC-001" className={inputClass} />
             </div>
           </div>
 

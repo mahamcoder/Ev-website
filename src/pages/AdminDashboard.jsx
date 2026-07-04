@@ -137,7 +137,7 @@ export default function AdminDashboard() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
 
   const [editingUser, setEditingUser] = useState(null);
-  const [userForm, setUserForm] = useState({ name: '', phone: '', membershipType: '', membershipStatus: '', paymentStatus: '' });
+  const [userForm, setUserForm] = useState({ name: '', phone: '', labelCode: '', membershipType: '', membershipStatus: '', paymentStatus: '' });
 
   const [distributionsList, setDistributionsList] = useState([]);
   const [distStep, setDistStep] = useState(1);
@@ -326,10 +326,42 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteUser = async (userId) => {
-    if (!window.confirm('Are you sure you want to delete this user? This cannot be undone.')) return;
+    if (!window.confirm('Are you sure you want to delete this member and ALL their data (payments, earnings)? This cannot be undone.')) return;
     try {
-      await deleteDoc(doc(db, 'users', userId));
-      await logActivity(currentUser?.uid, userData?.name, 'Delete User', `Deleted user ${userId}`);
+      const batch = writeBatch(db);
+
+      // 1. Fetch user doc to get projectId and payment total
+      const userSnap = await getDocs(query(collection(db, 'users'), where('__name__', '==', userId)));
+      const userDocSnap = await getDocs(query(collection(db, 'users')));
+      const targetUserRef = doc(db, 'users', userId);
+      const targetUserData = usersList.find(u => u.uid === userId);
+
+      // 2. Fetch and delete all payments for this user
+      const paymentsSnap = await getDocs(query(collection(db, 'payments'), where('userId', '==', userId)));
+      let totalPaidAmount = 0;
+      paymentsSnap.forEach(d => {
+        totalPaidAmount += (d.data().amount || 0);
+        batch.delete(d.ref);
+      });
+
+      // 3. Delete userEarnings document
+      batch.delete(doc(db, 'userEarnings', userId));
+
+      // 4. Decrement project totalMembers and collectedAmount
+      const projId = targetUserData?.projectId;
+      if (projId) {
+        const membersDecrement = targetUserData?.membershipStatus === 'Active' ? -1 : 0;
+        batch.set(doc(db, 'projects', projId), {
+          totalMembers: increment(membersDecrement),
+          collectedAmount: increment(-totalPaidAmount)
+        }, { merge: true });
+      }
+
+      // 5. Delete the user document
+      batch.delete(targetUserRef);
+
+      await batch.commit();
+      await logActivity(currentUser?.uid, userData?.name, 'Delete User', `Deleted user ${userId} and ${paymentsSnap.size} payment(s), total ₹${totalPaidAmount}`);
     } catch (err) { alert('Error: ' + err.message); }
   };
 
@@ -338,6 +370,7 @@ export default function AdminDashboard() {
     setUserForm({
       name: user.name || '',
       phone: user.phone || '',
+      labelCode: user.labelCode || '',
       membershipType: user.membershipType || '',
       membershipStatus: user.membershipStatus || 'Pending',
       paymentStatus: user.paymentStatus || 'Unpaid'
@@ -908,10 +941,11 @@ export default function AdminDashboard() {
     exportToCSV(
       filteredUsers.map(u => ({
         Name: u.name, Email: u.email, Phone: u.phone, Role: u.role,
+        'Label Code': u.labelCode || '',
         Package: u.membershipType, Status: u.membershipStatus, Payment: u.paymentStatus
       })),
       'users_export',
-      ['Name', 'Email', 'Phone', 'Role', 'Package', 'Status', 'Payment']
+      ['Name', 'Email', 'Phone', 'Role', 'Label Code', 'Package', 'Status', 'Payment']
     );
   };
 
@@ -1187,6 +1221,7 @@ const textSecondary = 'text-gray-700';
                         <th className="p-4">Name & Email</th>
                         <th className="p-4">Phone</th>
                         <th className="p-4">Role</th>
+                        <th className="p-4">Label Code</th>
                         <th className="p-4">Package</th>
                         <th className="p-4">Status</th>
                         <th className="p-4">Payment</th>
@@ -1203,6 +1238,12 @@ const textSecondary = 'text-gray-700';
                           <td className="p-4 font-mono font-bold">{user.phone || 'N/A'}</td>
                           <td className="p-4">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${user.role === 'admin' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-slate-500/10 text-slate-400 border border-slate-500/20'}`}>{user.role}</span>
+                          </td>
+                          <td className="p-4">
+                            {user.labelCode
+                              ? <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[#74E61F]/10 text-[#1B4332] border border-[#74E61F]/30 font-mono tracking-wider">{user.labelCode}</span>
+                              : <span className="text-[10px] text-slate-400 font-semibold">—</span>
+                            }
                           </td>
                           <td className="p-4 font-bold">
                             <span>{user.membershipType || 'None'}</span>
@@ -1260,7 +1301,7 @@ const textSecondary = 'text-gray-700';
                         </tr>
                       ))}
                       {filteredUsers.length === 0 && (
-                        <tr><td colSpan="7" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>No matching members found.</td></tr>
+                        <tr><td colSpan="8" className={`py-12 text-center ${textSecondary} text-xs font-semibold`}>No matching members found.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -1277,6 +1318,16 @@ const textSecondary = 'text-gray-700';
                       <form onSubmit={handleUpdateUser} className="space-y-4">
                         <InputField label="Full Name" value={userForm.name} onChange={(e) => setUserForm({...userForm, name: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
                         <InputField label="Phone" value={userForm.phone} onChange={(e) => setUserForm({...userForm, phone: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-[#40916C]">Label Code</label>
+                          <input
+                            type="text"
+                            value={userForm.labelCode || ''}
+                            onChange={(e) => setUserForm({...userForm, labelCode: e.target.value})}
+                            placeholder="e.g. LC-001"
+                            className={`w-full px-4 py-2.5 rounded-2xl ${inputBg} border border-[#B7E4C7] focus:border-[#40916C] focus:outline-none text-xs font-mono font-bold text-[#1B4332] transition-colors`}
+                          />
+                        </div>
                         <div className="grid grid-cols-2 gap-4">
                           <SelectField label="Package" value={userForm.membershipType} onChange={(e) => setUserForm({...userForm, membershipType: e.target.value})} options={['', 'Silver', 'Gold', 'Platinum']} inputBg={inputBg} darkMode={darkMode} />
                           <SelectField label="Status" value={userForm.membershipStatus} onChange={(e) => setUserForm({...userForm, membershipStatus: e.target.value})} options={['Pending', 'Active']} inputBg={inputBg} darkMode={darkMode} />

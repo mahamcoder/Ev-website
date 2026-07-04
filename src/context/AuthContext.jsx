@@ -101,7 +101,7 @@ export function AuthProvider({ children }) {
     }
   };
 
-  async function signUpFn(email, password, name, phone, chosenPlan) {
+  async function signUpFn(email, password, name, phone, chosenPlan, labelCode) {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
 
@@ -113,6 +113,7 @@ export function AuthProvider({ children }) {
       email,
       phone,
       role,
+      labelCode: labelCode || '',
       membershipType: chosenPlan || null,
       membershipStatus: role === 'admin' ? 'Active' : 'Pending',
       paymentStatus: role === 'admin' ? 'Paid' : 'Unpaid',
