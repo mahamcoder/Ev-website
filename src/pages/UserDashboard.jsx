@@ -145,10 +145,7 @@ export default function UserDashboard() {
     );
     const latestPayment = successfulPayments[0] || groupPayments[0];
 
-    // Only count successful payments toward the amount actually paid —
-    // duplicate/failed retries should not inflate the total.
-    const totalAmount = successfulPayments.reduce((acc, curr) => acc + (curr.amount || 0), 0)
-      || (latestPayment?.amount || 0);
+    const totalAmount = successfulPayments.reduce((acc, curr) => acc + (curr.amount || 0), 0);
 
     const project = projectsList.find(pr => pr.id === pId);
 

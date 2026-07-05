@@ -271,9 +271,12 @@ export default function AdminDashboard() {
   
   // Global aggregate metrics (with a note)
   const globalActiveMembers = usersList.filter(u => u.role !== 'admin' && u.membershipStatus === 'Active').length;
-  const globalTotalRevenue = paymentsList.reduce((acc, curr) => acc + (curr.amount || 0), 0);
-
-  const totalRevenue = activeProjPayments.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+  const globalTotalRevenue = paymentsList
+  .filter(p => p.status === 'Success')
+  .reduce((acc, curr) => acc + (curr.amount || 0), 0);
+ const totalRevenue = activeProjPayments
+  .filter(p => p.status === 'Success')
+  .reduce((acc, curr) => acc + (curr.amount || 0), 0);
   const totalCompanyIncome = companyIncomeList.filter(i => i.projectId === selectedProjectId).reduce((acc, curr) => acc + (curr.amount || 0), 0);
   const totalDistributed = distributionsList.filter(d => d.projectId === selectedProjectId && d.status === 'locked').reduce((acc, d) => acc + (d.totalDistributed || 0), 0);
   const pendingDistribution = distributionsList.filter(d => d.projectId === selectedProjectId && d.status === 'confirmed').reduce((acc, d) => acc + (d.totalDistributed || 0), 0);
@@ -923,6 +926,32 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleDeletePayment = async (tx) => {
+    if (!window.confirm(`Delete payment ${tx.transactionId} (${formatRupee(tx.amount)})? This cannot be undone.`)) return;
+    try {
+      const batch = writeBatch(db);
+
+      // Delete the payment document
+      batch.delete(doc(db, 'payments', tx.id));
+
+      // Only decrement collectedAmount if the payment was successful
+      // (Failed / pending_verification payments never affected collectedAmount)
+      if (tx.status === 'Success' || tx.status === 'Paid') {
+        const pId = tx.projectId || activeProjectId;
+        if (pId) {
+          batch.set(doc(db, 'projects', pId), {
+            collectedAmount: increment(-(tx.amount || 0))
+          }, { merge: true });
+        }
+      }
+
+      await batch.commit();
+      await logActivity(currentUser?.uid, userData?.name, 'Delete Payment', `Deleted payment ${tx.transactionId} (${tx.status}) for ${tx.userEmail}`);
+    } catch (err) {
+      alert('Error deleting payment: ' + err.message);
+    }
+  };
+
   const handleExportDistributions = () => {
     exportToCSV(
       distributionsList.map(d => ({
@@ -1477,9 +1506,15 @@ const textSecondary = 'text-gray-700';
                                     <X className="w-3.5 h-3.5" />
                                   </button>
                                 </>
-                              ) : (
-                                <span className={`text-[10px] ${textSecondary}`}>—</span>
-                              )}
+                              ) : null}
+                              {/* Delete button — always visible for any status */}
+                              <button
+                                onClick={() => handleDeletePayment(tx)}
+                                className="p-1.5 bg-red-500/10 hover:bg-red-500 hover:text-white text-red-400 rounded-lg transition-all border border-red-500/20 flex items-center justify-center cursor-pointer"
+                                title="Delete Payment"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           </td>
                         </tr>

@@ -930,42 +930,6 @@ export default function Payment() {
             const verifyData = await verifyRes.json();
             if (verifyData.success) {
               console.log('✅ Frontend: Transaction Successful!', response);
-
-              // ✅ FIX: Save payment to Firestore from frontend so Admin tab shows it
-              try {
-                const { doc: fd, setDoc: sd, collection: cl, addDoc: ad, serverTimestamp: st, increment: inc } = await import('firebase/firestore');
-                const activeProjId = activeProject?.id || '';
-
-                if (activeProjId) {
-                  await sd(fd(db, 'projects', activeProjId), {
-                    collectedAmount: inc(price),
-                    totalMembers: inc(1)
-                  }, { merge: true });
-                }
-
-                await ad(cl(db, 'payments'), {
-                  userId: currentUser.uid,
-                  userName: userData?.name || 'User',
-                  userEmail: currentUser.email,
-                  plan: selectedPlan,
-                  amount: price,
-                  transactionId: response.razorpay_payment_id,
-                  status: 'Success',
-                  paymentMethod: 'Razorpay',
-                  projectId: activeProjId,
-                  createdAt: st()
-                });
-
-                await sd(fd(db, 'users', currentUser.uid), {
-                  membershipStatus: 'Active',
-                  paymentStatus: 'Paid',
-                  membershipType: selectedPlan,
-                  projectId: activeProjId
-                }, { merge: true });
-              } catch (fsErr) {
-                console.error('⚠️ Firestore save failed after Razorpay success:', fsErr);
-              }
-
               recordPayment(response.razorpay_payment_id);
             } else {
               console.error('❌ Frontend: Transaction verification failed!', verifyData);
