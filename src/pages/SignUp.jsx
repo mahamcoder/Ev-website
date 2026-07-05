@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams, Link } from '../router';
 import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { ArrowLeft, User, Mail, Phone, Lock, Eye, EyeOff, Tag } from 'lucide-react';
+import PolicyModal from '../components/PolicyModal';
 
 export default function SignUp() {
   const { signUp } = useAuth();
@@ -15,6 +16,8 @@ export default function SignUp() {
     name: '', email: '', phone: '', password: '', plan: initialPlan, labelCode: '',
   });
   const [showPassword, setShowPassword] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [activePolicyPage, setActivePolicyPage] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -30,6 +33,9 @@ export default function SignUp() {
     }
     if (formData.password.length < 6) {
       setError('Password must be at least 6 characters.'); setLoading(false); return;
+    }
+    if (!agreedToTerms) {
+      setError('You must agree to the Terms & Conditions to proceed.'); setLoading(false); return;
     }
     try {
       await signUp(formData.email, formData.password, formData.name, formData.phone, formData.plan, formData.labelCode);
@@ -111,7 +117,7 @@ export default function SignUp() {
 
           {/* Label Code */}
           <div className="space-y-1.5">
-            <label className={labelClass}>Label Code <span className="normal-case text-[#74E61F] font-semibold">(optional)</span></label>
+            <label className={labelClass}>Label Code </label>
             <div className="relative">
               <Tag className={iconClass} />
               <input type="text" name="labelCode" value={formData.labelCode} onChange={handleChange}
@@ -147,10 +153,65 @@ export default function SignUp() {
             
           </div> */}
 
+          {/* Terms & Conditions */}
+          <div className="space-y-3">
+            <label
+              htmlFor="terms"
+              className={`flex items-start space-x-3 cursor-pointer p-4 rounded-2xl border transition-all duration-200 ${
+                agreedToTerms
+                  ? 'bg-[#D8F3DC] border-[#40916C]'
+                  : 'bg-[#F7FBF9] border-[#B7E4C7] hover:border-[#40916C]'
+              }`}
+            >
+              <div
+                className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all duration-200 ${
+                  agreedToTerms
+                    ? 'bg-[#40916C] border-[#40916C]'
+                    : 'bg-white border-[#B7E4C7]'
+                }`}
+                onClick={() => setAgreedToTerms(!agreedToTerms)}
+              >
+                {agreedToTerms && (
+                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </div>
+              <input
+                id="terms"
+                type="checkbox"
+                className="sr-only"
+                checked={agreedToTerms}
+                onChange={(e) => setAgreedToTerms(e.target.checked)}
+              />
+              <span className="text-xs font-semibold text-[#2D3748] leading-relaxed">
+                By creating an account, I confirm that I have read, understood, and agree to the{' '}
+                <button
+                  type="button"
+                  className="text-[#40916C] hover:text-[#1B4332] underline font-bold inline cursor-pointer align-baseline"
+                  onClick={(e) => { e.stopPropagation(); setActivePolicyPage('terms'); }}
+                >
+                  Terms &amp; Conditions
+                </button>{' '}and{' '}
+                <button
+                  type="button"
+                  className="text-[#40916C] hover:text-[#1B4332] underline font-bold inline cursor-pointer align-baseline"
+                  onClick={(e) => { e.stopPropagation(); setActivePolicyPage('terms'); }}
+                >
+                  Privacy Policy
+                </button>{' '}of Stoshi Green Energy.
+              </span>
+            </label>
+          </div>
+
           <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}
-            type="submit" disabled={loading}
-            className="w-full py-4 rounded-2xl bg-[#40916C] text-white font-sora font-bold uppercase tracking-wider hover:bg-[#1B4332] transition-all duration-300 cursor-pointer flex items-center justify-center text-sm disabled:opacity-60"
-            style={{ boxShadow: '0 4px 16px rgba(27,67,50,0.18)' }}>
+            type="submit" disabled={loading || !agreedToTerms}
+            className={`w-full py-4 rounded-2xl font-sora font-bold uppercase tracking-wider transition-all duration-300 flex items-center justify-center text-sm ${
+              agreedToTerms
+                ? 'bg-[#40916C] text-white hover:bg-[#1B4332] cursor-pointer'
+                : 'bg-[#B7E4C7] text-[#40916C] cursor-not-allowed opacity-60'
+            } disabled:opacity-60`}
+            style={{ boxShadow: agreedToTerms ? '0 4px 16px rgba(27,67,50,0.18)' : 'none' }}>
             {loading
               ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               : 'Proceed to Payment'}
@@ -165,6 +226,10 @@ export default function SignUp() {
           </Link>
         </div>
       </motion.div>
+
+      {activePolicyPage && (
+        <PolicyModal page={activePolicyPage} onClose={() => setActivePolicyPage(null)} />
+      )}
     </div>
   );
 }

@@ -137,7 +137,7 @@ export default function AdminDashboard() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
 
   const [editingUser, setEditingUser] = useState(null);
-  const [userForm, setUserForm] = useState({ name: '', phone: '', labelCode: '', membershipType: '', membershipStatus: '', paymentStatus: '' });
+  const [userForm, setUserForm] = useState({ name: '', phone: '', labelCode: '', storeNumber: '', membershipType: '', membershipStatus: '', paymentStatus: '' });
 
   const [distributionsList, setDistributionsList] = useState([]);
   const [distStep, setDistStep] = useState(1);
@@ -371,6 +371,7 @@ export default function AdminDashboard() {
       name: user.name || '',
       phone: user.phone || '',
       labelCode: user.labelCode || '',
+      storeNumber: user.storeNumber || '',
       membershipType: user.membershipType || '',
       membershipStatus: user.membershipStatus || 'Pending',
       paymentStatus: user.paymentStatus || 'Unpaid'
@@ -942,10 +943,11 @@ export default function AdminDashboard() {
       filteredUsers.map(u => ({
         Name: u.name, Email: u.email, Phone: u.phone, Role: u.role,
         'Label Code': u.labelCode || '',
+        'Store Number': u.storeNumber || '',
         Package: u.membershipType, Status: u.membershipStatus, Payment: u.paymentStatus
       })),
       'users_export',
-      ['Name', 'Email', 'Phone', 'Role', 'Label Code', 'Package', 'Status', 'Payment']
+      ['Name', 'Email', 'Phone', 'Role', 'Label Code', 'Store Number', 'Package', 'Status', 'Payment']
     );
   };
 
@@ -1221,7 +1223,7 @@ const textSecondary = 'text-gray-700';
                         <th className="p-4">Name & Email</th>
                         <th className="p-4">Phone</th>
                         <th className="p-4">Role</th>
-                        <th className="p-4">Label Code</th>
+                        <th className="p-4">Label Code / Store</th>
                         <th className="p-4">Package</th>
                         <th className="p-4">Status</th>
                         <th className="p-4">Payment</th>
@@ -1240,10 +1242,13 @@ const textSecondary = 'text-gray-700';
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${user.role === 'admin' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-slate-500/10 text-slate-400 border border-slate-500/20'}`}>{user.role}</span>
                           </td>
                           <td className="p-4">
-                            {user.labelCode
-                              ? <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[#74E61F]/10 text-[#1B4332] border border-[#74E61F]/30 font-mono tracking-wider">{user.labelCode}</span>
-                              : <span className="text-[10px] text-slate-400 font-semibold">—</span>
-                            }
+                            <div className="flex flex-col gap-1 text-[11px] font-bold font-mono text-slate-700 whitespace-nowrap">
+                              {user.labelCode && <div>{user.labelCode}</div>}
+                              {user.storeNumber && <div>{user.storeNumber}</div>}
+                              {!user.labelCode && !user.storeNumber && (
+                                <span className="text-[10px] text-slate-400 font-semibold">—</span>
+                              )}
+                            </div>
                           </td>
                           <td className="p-4 font-bold">
                             <span>{user.membershipType || 'None'}</span>
@@ -1318,15 +1323,27 @@ const textSecondary = 'text-gray-700';
                       <form onSubmit={handleUpdateUser} className="space-y-4">
                         <InputField label="Full Name" value={userForm.name} onChange={(e) => setUserForm({...userForm, name: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
                         <InputField label="Phone" value={userForm.phone} onChange={(e) => setUserForm({...userForm, phone: e.target.value})} inputBg={inputBg} darkMode={darkMode} />
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-[#40916C]">Label Code</label>
-                          <input
-                            type="text"
-                            value={userForm.labelCode || ''}
-                            onChange={(e) => setUserForm({...userForm, labelCode: e.target.value})}
-                            placeholder="e.g. LC-001"
-                            className={`w-full px-4 py-2.5 rounded-2xl ${inputBg} border border-[#B7E4C7] focus:border-[#40916C] focus:outline-none text-xs font-mono font-bold text-[#1B4332] transition-colors`}
-                          />
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-[#40916C]">Label Code</label>
+                            <input
+                              type="text"
+                              value={userForm.labelCode || ''}
+                              onChange={(e) => setUserForm({...userForm, labelCode: e.target.value})}
+                              placeholder="e.g. LC-001"
+                              className={`w-full px-4 py-2.5 rounded-2xl ${inputBg} border border-[#B7E4C7] focus:border-[#40916C] focus:outline-none text-xs font-mono font-bold text-[#1B4332] transition-colors`}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-[#40916C]">Store Number</label>
+                            <input
+                              type="text"
+                              value={userForm.storeNumber || ''}
+                              onChange={(e) => setUserForm({...userForm, storeNumber: e.target.value})}
+                              placeholder="e.g. STR-001"
+                              className={`w-full px-4 py-2.5 rounded-2xl ${inputBg} border border-[#B7E4C7] focus:border-[#40916C] focus:outline-none text-xs font-mono font-bold text-[#1B4332] transition-colors`}
+                            />
+                          </div>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                           <SelectField label="Package" value={userForm.membershipType} onChange={(e) => setUserForm({...userForm, membershipType: e.target.value})} options={['', 'Silver', 'Gold', 'Platinum']} inputBg={inputBg} darkMode={darkMode} />

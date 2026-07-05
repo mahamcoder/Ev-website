@@ -9,7 +9,7 @@ import {
   Menu, X, Check, Info, Gift, Wallet, Leaf, Shield, ChevronRight,
   Download, ArrowUpRight, Phone, Mail, Sparkles, Lock,
   BarChart3, TrendingUp, DollarSign, Clock, Copy, ExternalLink,
-  Calendar, Filter, Search, Settings, FileText, Eye, EyeOff, Share2
+  Calendar, Filter, Search, Settings, FileText, Eye, EyeOff, Share2, Tag
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -89,7 +89,7 @@ export default function UserDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const [profileForm, setProfileForm] = useState({ name: '', phone: '', address: '' });
+  const [profileForm, setProfileForm] = useState({ name: '', phone: '', address: '', storeNumber: '', labelCode: '' });
   const [profileStatus, setProfileStatus] = useState({ success: false, error: '' });
 
   const [passwordForm, setPasswordForm] = useState({ newPassword: '', confirmPassword: '' });
@@ -191,7 +191,9 @@ export default function UserDashboard() {
       setProfileForm({
         name: userData.name || '',
         phone: userData.phone || '',
-        address: userData.address || ''
+        address: userData.address || '',
+        storeNumber: userData.storeNumber || '',
+        labelCode: userData.labelCode || ''
       });
     }
   }, [userData, activeTab]);
@@ -276,7 +278,11 @@ export default function UserDashboard() {
       if (currentUser) {
         const { doc: fd, setDoc: sd } = await import('firebase/firestore');
         const userRef = doc(db, 'users', currentUser.uid);
-        await sd(userRef, { address: profileForm.address || '' }, { merge: true });
+        await sd(userRef, {
+          address: profileForm.address || '',
+          storeNumber: profileForm.storeNumber || '',
+          labelCode: profileForm.labelCode || ''
+        }, { merge: true });
       }
       setProfileStatus({ success: true, error: '' });
       confetti({ particleCount: 50, spread: 40, origin: { y: 0.8 }, colors: ['#74E61F', '#22C55E'] });
@@ -946,6 +952,41 @@ export default function UserDashboard() {
                   </div>
                   <InputField label="Phone Number" type="tel" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} inputBg={inputBg} darkMode={darkMode} required />
                   <InputField label="Address" value={profileForm.address} onChange={(e) => setProfileForm({ ...profileForm, address: e.target.value })} inputBg={inputBg} darkMode={darkMode} />
+
+                  {/* Label Code */}
+                  <div className="space-y-1.5">
+                    <label className={`text-xs font-bold uppercase tracking-wider ${textSecondary}`}>Label Code</label>
+                    <div className="relative">
+                      <Tag className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#40916C]" />
+                      <input
+                        type="text"
+                        placeholder="e.g. LC-001"
+                        value={profileForm.labelCode}
+                        onChange={(e) => setProfileForm({ ...profileForm, labelCode: e.target.value })}
+                        className={`w-full pl-11 pr-4 py-3.5 rounded-2xl ${inputBg} border ${cardBorder} focus:border-[#40916C] focus:outline-none text-sm font-medium text-[#2D3748] placeholder-[#B7E4C7] transition-colors`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Store Number */}
+                  <div className="space-y-1.5">
+                    <label className={`text-xs font-bold uppercase tracking-wider ${textSecondary}`}>Store Number</label>
+                    <div className="relative">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#40916C]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                        <polyline points="9 22 9 12 15 12 15 22" />
+                      </svg>
+                      <input
+                        type="text"
+                        placeholder="e.g. STR-001"
+                        value={profileForm.storeNumber}
+                        onChange={(e) => setProfileForm({ ...profileForm, storeNumber: e.target.value })}
+                        className={`w-full pl-11 pr-4 py-3.5 rounded-2xl ${inputBg} border ${cardBorder} focus:border-[#40916C] focus:outline-none text-sm font-medium text-[#2D3748] placeholder-[#B7E4C7] transition-colors`}
+                      />
+                    </div>
+                    <p className="text-[10px] text-[#40916C] font-medium mt-1 pl-1">Enter your store or branch number (e.g. STR-001)</p>
+                  </div>
+
                   <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} type="submit"
                     className="w-full py-4 rounded-2xl bg-[#74E61F] text-[#042A1d] font-sora font-bold uppercase tracking-wider hover:bg-white hover:text-black transition-all cursor-pointer text-xs md:text-sm">
                     Save Changes

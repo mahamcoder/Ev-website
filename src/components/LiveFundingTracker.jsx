@@ -56,7 +56,7 @@ export default function LiveFundingTracker({ activeProject }) {
           transition={{ duration: 0.6, delay: 0.1 }}
           className="text-3xl sm:text-4xl lg:text-[2.75rem] font-black font-sora text-brand-dark leading-tight tracking-tight mb-4"
         >
-          {(activeProject.name || '').toUpperCase()} • <span className="text-brand-green">Live Funding</span>
+          {(activeProject.name || '').toUpperCase()} • <span className="text-brand-green">Live Membership Progress</span>
         </motion.h2>
 
         <motion.p
