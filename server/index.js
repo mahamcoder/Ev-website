@@ -3,24 +3,46 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
-import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, getDoc, collection, query, where, limit, getDocs, writeBatch, serverTimestamp, increment } from 'firebase/firestore';
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 dotenv.config(); // Loads server/.env
 dotenv.config({ path: '../.env' }); // Loads root .env for Firebase client config
 
-const firebaseConfig = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY,
-  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.VITE_FIREBASE_APP_ID
-};
+// --- Robust Firebase Admin SDK init ---
+let db;
+try {
+  const rawJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!rawJson) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON environment variable is missing in Vercel settings');
+  }
 
-const appFirebase = initializeApp(firebaseConfig);
-const db = getFirestore(appFirebase);
-console.log('Firebase initialized successfully using Client SDK');
+  let serviceAccount;
+  if (typeof rawJson === 'object') {
+    serviceAccount = rawJson;
+  } else {
+    let cleanStr = rawJson.trim();
+    if ((cleanStr.startsWith("'") && cleanStr.endsWith("'")) || (cleanStr.startsWith('"') && cleanStr.endsWith('"'))) {
+      cleanStr = cleanStr.slice(1, -1).trim();
+    }
+    serviceAccount = JSON.parse(cleanStr);
+  }
+
+  if (serviceAccount.private_key) {
+    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+  }
+
+  if (!getApps().length) {
+    initializeApp({
+      credential: cert(serviceAccount)
+    });
+  }
+
+  db = getFirestore();
+  console.log('✅ Firebase Admin initialized successfully (project:', serviceAccount.project_id, ')');
+} catch (err) {
+  console.error('❌ Failed to initialize Firebase Admin SDK:', err.message);
+}
 
 const app = express();
 app.use(cors());
@@ -33,8 +55,8 @@ const razorpayInstance = new Razorpay({
   key_secret: process.env.RAZORPAY_SECRET_KEY || 'YourSecretKey',
 });
 
-// Endpoint to create an order
-app.post('/api/create-order', async (req, res) => {
+// Helper for Order creation
+const handleCreateOrder = async (req, res) => {
   try {
     const { amount, currency = 'INR', receipt = 'receipt_1' } = req.body;
 
@@ -50,10 +72,13 @@ app.post('/api/create-order', async (req, res) => {
     console.error('Error creating order:', error);
     res.status(500).json({ error: error.message || error.error?.description || 'Failed to create order' });
   }
-});
+};
 
-// Endpoint to verify payment signature
-app.post('/api/verify-payment', async (req, res) => {
+app.post('/api/create-order', handleCreateOrder);
+app.post('/create-order', handleCreateOrder);
+
+// Helper for Payment verification
+const handleVerifyPayment = async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, amount, projectId } = req.body;
 
@@ -65,33 +90,34 @@ app.post('/api/verify-payment', async (req, res) => {
       .digest('hex');
 
     if (expectedSignature === razorpay_signature) {
-      // Signature is valid
       console.log('✅ Transaction Successful! Signature matched for Payment ID:', razorpay_payment_id);
 
       try {
+        if (!db) {
+          throw new Error('Firestore Admin DB was not initialized (check FIREBASE_SERVICE_ACCOUNT_JSON in Vercel env)');
+        }
+
         let activeProjectRef;
         let activeProjectId = projectId || '';
-        
+
         if (activeProjectId) {
-          activeProjectRef = doc(db, 'projects', activeProjectId);
+          activeProjectRef = db.collection('projects').doc(activeProjectId);
         } else {
           // Fallback: use the first project if no active project is passed
-          const projectsRef = collection(db, 'projects');
-          const allProjQ = query(projectsRef, limit(1));
-          const allProjectsSnapshot = await getDocs(allProjQ);
+          const allProjectsSnapshot = await db.collection('projects').limit(1).get();
           if (!allProjectsSnapshot.empty) {
             const docSnap = allProjectsSnapshot.docs[0];
             activeProjectId = docSnap.id;
-            activeProjectRef = doc(db, 'projects', activeProjectId);
+            activeProjectRef = db.collection('projects').doc(activeProjectId);
           } else {
             console.warn('⚠️ No projects found at all. Cannot associate payment.');
           }
         }
 
-        const batch = writeBatch(db);
+        const batch = db.batch();
 
         // 1. Write to payments collection
-        const paymentRef = doc(collection(db, 'payments'));
+        const paymentRef = db.collection('payments').doc();
         batch.set(paymentRef, {
           userId: userId || 'guest',
           plan: plan || 'Unknown',
@@ -100,15 +126,15 @@ app.post('/api/verify-payment', async (req, res) => {
           orderId: razorpay_order_id,
           status: 'Success',
           projectId: activeProjectId,
-          createdAt: serverTimestamp()
+          createdAt: FieldValue.serverTimestamp()
         });
 
         // 2. Update users/{userId}
         if (userId && !userId.startsWith('guest')) {
-          const userRef = doc(db, 'users', userId);
+          const userRef = db.collection('users').doc(userId);
 
-          const userSnap = await getDoc(userRef);
-          if (!userSnap.exists()) {
+          const userSnap = await userRef.get();
+          if (!userSnap.exists) {
             console.warn(`⚠️ [MISSING USER DOC] UID: ${userId} has no Firestore document during payment verification. Payment ID: ${razorpay_payment_id}, Plan: ${plan}. Creating via set+merge.`);
           }
 
@@ -120,23 +146,27 @@ app.post('/api/verify-payment', async (req, res) => {
           }, { merge: true });
         }
 
-        // 3. Increment the ACTIVE project's collected amount and members
+        // 3. Increment the ACTIVE project's collected amount and total members
         if (activeProjectRef) {
           batch.set(activeProjectRef, {
-            collectedAmount: increment(amount || 0),
-            totalMembers: increment(1)
+            collectedAmount: FieldValue.increment(amount || 0),
+            totalMembers: FieldValue.increment(1)
           }, { merge: true });
         }
 
         await batch.commit();
         console.log('✅ Firestore updated successfully for payment:', razorpay_payment_id);
+
+        res.status(200).json({ success: true, message: 'Payment verified successfully' });
       } catch (dbError) {
         console.error('❌ Error updating Firestore post-payment:', dbError);
+        res.status(500).json({
+          success: false,
+          message: 'Payment was verified with Razorpay, but saving to the database failed: ' + dbError.message,
+          error: dbError.message
+        });
       }
-
-      res.status(200).json({ success: true, message: 'Payment verified successfully' });
     } else {
-      // Signature is invalid
       console.log('❌ Transaction Failed! Invalid signature for Payment ID:', razorpay_payment_id);
       res.status(400).json({ success: false, message: 'Invalid signature' });
     }
@@ -144,8 +174,15 @@ app.post('/api/verify-payment', async (req, res) => {
     console.error('Error verifying payment:', error);
     res.status(500).json({ success: false, error: 'Failed to verify payment' });
   }
-});
+};
 
-app.listen(PORT, () => {
-  console.log(`Backend server running on http://localhost:${PORT}`);
-});
+app.post('/api/verify-payment', handleVerifyPayment);
+app.post('/verify-payment', handleVerifyPayment);
+
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`Backend server running on http://localhost:${PORT}`);
+  });
+}
+
+export default app;

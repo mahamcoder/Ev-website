@@ -8,16 +8,25 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 dotenv.config();
 
-// --- Firebase Admin SDK init (bypasses Firestore Security Rules) ---
+// --- Robust Firebase Admin SDK init ---
 let db;
 try {
-  const jsonStr = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!jsonStr) {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON env variable is missing');
+  const rawJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!rawJson) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON environment variable is missing in Vercel settings');
   }
 
-  const serviceAccount = JSON.parse(jsonStr);
-  // Vercel env vars sometimes store the private key with literal \n instead of real newlines
+  let serviceAccount;
+  if (typeof rawJson === 'object') {
+    serviceAccount = rawJson;
+  } else {
+    let cleanStr = rawJson.trim();
+    if ((cleanStr.startsWith("'") && cleanStr.endsWith("'")) || (cleanStr.startsWith('"') && cleanStr.endsWith('"'))) {
+      cleanStr = cleanStr.slice(1, -1).trim();
+    }
+    serviceAccount = JSON.parse(cleanStr);
+  }
+
   if (serviceAccount.private_key) {
     serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
   }
@@ -43,8 +52,8 @@ const razorpayInstance = new Razorpay({
   key_secret: process.env.RAZORPAY_SECRET_KEY || 'YourSecretKey',
 });
 
-// Endpoint to create an order
-app.post('/api/create-order', async (req, res) => {
+// Helper for Order creation
+const handleCreateOrder = async (req, res) => {
   try {
     const { amount, currency = 'INR', receipt = 'receipt_1' } = req.body;
 
@@ -60,10 +69,13 @@ app.post('/api/create-order', async (req, res) => {
     console.error('Error creating order:', error);
     res.status(500).json({ error: error.message || error.error?.description || 'Failed to create order' });
   }
-});
+};
 
-// Endpoint to verify payment signature and atomically update Firestore
-app.post('/api/verify-payment', async (req, res) => {
+app.post('/api/create-order', handleCreateOrder);
+app.post('/create-order', handleCreateOrder);
+
+// Helper for Payment verification
+const handleVerifyPayment = async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, amount, projectId } = req.body;
 
@@ -79,7 +91,7 @@ app.post('/api/verify-payment', async (req, res) => {
 
       try {
         if (!db) {
-          throw new Error('Firestore Admin DB was not initialized (check FIREBASE_SERVICE_ACCOUNT_JSON)');
+          throw new Error('Firestore Admin DB was not initialized (check FIREBASE_SERVICE_ACCOUNT_JSON in Vercel env)');
         }
 
         let activeProjectRef;
@@ -144,11 +156,10 @@ app.post('/api/verify-payment', async (req, res) => {
 
         res.status(200).json({ success: true, message: 'Payment verified successfully' });
       } catch (dbError) {
-        // Surface the failure so the frontend shows the error instead of false success
         console.error('❌ Error updating Firestore post-payment:', dbError);
         res.status(500).json({
           success: false,
-          message: 'Payment was verified with Razorpay, but saving to the database failed. Please contact support with this Payment ID: ' + razorpay_payment_id,
+          message: 'Payment was verified with Razorpay, but saving to the database failed: ' + dbError.message,
           error: dbError.message
         });
       }
@@ -160,6 +171,9 @@ app.post('/api/verify-payment', async (req, res) => {
     console.error('Error verifying payment:', error);
     res.status(500).json({ success: false, error: 'Failed to verify payment' });
   }
-});
+};
+
+app.post('/api/verify-payment', handleVerifyPayment);
+app.post('/verify-payment', handleVerifyPayment);
 
 export default app;
