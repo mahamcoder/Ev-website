@@ -92,8 +92,9 @@ export default function UserDashboard() {
   const [profileForm, setProfileForm] = useState({ name: '', phone: '', address: '', storeNumber: '', labelCode: '' });
   const [profileStatus, setProfileStatus] = useState({ success: false, error: '' });
 
-  const [passwordForm, setPasswordForm] = useState({ newPassword: '', confirmPassword: '' });
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [passwordStatus, setPasswordStatus] = useState({ success: false, error: '' });
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
 
   const [payments, setPayments] = useState([]);
   const [paymentsLoading, setPaymentsLoading] = useState(true);
@@ -290,20 +291,42 @@ export default function UserDashboard() {
   const handlePasswordChange = async (e) => {
     e.preventDefault();
     setPasswordStatus({ success: false, error: '' });
+    if (!passwordForm.currentPassword) {
+      setPasswordStatus({ success: false, error: 'Please enter your current password.' });
+      return;
+    }
     if (!passwordForm.newPassword || passwordForm.newPassword.length < 6) {
-      setPasswordStatus({ success: false, error: 'Password must be at least 6 characters.' });
+      setPasswordStatus({ success: false, error: 'New password must be at least 6 characters.' });
       return;
     }
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setPasswordStatus({ success: false, error: 'Passwords do not match.' });
+      setPasswordStatus({ success: false, error: 'New passwords do not match.' });
       return;
     }
+    setPasswordSubmitting(true);
     try {
-      await changePassword(passwordForm.newPassword);
+      await changePassword(passwordForm.newPassword, passwordForm.currentPassword);
       setPasswordStatus({ success: true, error: '' });
-      setPasswordForm({ newPassword: '', confirmPassword: '' });
-      setTimeout(() => setPasswordStatus(p => ({ ...p, success: false })), 3000);
-    } catch (err) { setPasswordStatus({ success: false, error: 'Failed: ' + err.message }); }
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setTimeout(() => setPasswordStatus(p => ({ ...p, success: false })), 4000);
+    } catch (err) {
+      const code = err.code || '';
+      let msg = 'Failed to update password. Please try again.';
+      if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+        msg = 'Current password is incorrect. Please try again.';
+      } else if (code === 'auth/requires-recent-login') {
+        msg = 'Session expired. Please sign out and sign back in before changing your password.';
+      } else if (code === 'auth/weak-password') {
+        msg = 'New password is too weak. Choose at least 6 characters.';
+      } else if (code === 'auth/network-request-failed') {
+        msg = 'Network error. Check your internet connection and try again.';
+      } else if (err.message) {
+        msg = err.message;
+      }
+      setPasswordStatus({ success: false, error: msg });
+    } finally {
+      setPasswordSubmitting(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -530,11 +553,10 @@ export default function UserDashboard() {
               const isActive = activeTab === item.id;
               return (
                 <button key={item.id} onClick={() => { setActiveTab(item.id); setSidebarOpen(false); }}
-                  className={`w-full px-4 py-3 rounded-2xl flex items-center space-x-3.5 text-xs font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
-                    isActive
+                  className={`w-full px-4 py-3 rounded-2xl flex items-center space-x-3.5 text-xs font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${isActive
                       ? 'bg-[#1B4332] text-white border border-[#1B4332]'
                       : 'text-[#40916C] hover:text-[#1B4332] hover:bg-[#B7E4C7] border border-transparent'
-                  }`}>
+                    }`}>
                   <Icon className="w-4 h-4" />
                   <span>{item.name}</span>
                 </button>
@@ -585,11 +607,10 @@ export default function UserDashboard() {
                           <button
                             key={up.projectId}
                             onClick={() => setSelectedProjectId(up.projectId)}
-                            className={`px-3.5 py-2.5 rounded-full border flex items-center space-x-2 text-xs font-bold transition-all cursor-pointer ${
-                              isActive
+                            className={`px-3.5 py-2.5 rounded-full border flex items-center space-x-2 text-xs font-bold transition-all cursor-pointer ${isActive
                                 ? 'bg-[#1B4332] text-white border-[#1B4332]'
                                 : 'bg-[#D8F3DC] text-[#1B4332] border-[#B7E4C7] hover:bg-[#B7E4C7]'
-                            }`}
+                              }`}
                           >
                             <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-[#74E61F]' : 'bg-[#40916C]'} animate-pulse`}></div>
                             <span>{up.projectName}</span>
@@ -824,10 +845,10 @@ export default function UserDashboard() {
                     <div className={`p-5 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} rounded-2xl border ${cardBorder}`}>
                       <h4 className={`text-sm font-bold font-sora ${textPrimary} mb-3`}>{projectData.location || 'Sonbhadra, Uttar Pradesh'}</h4>
                       <div className="grid grid-cols-2 gap-4">
-                        <ProjectStat label="Project Name" value={projectData.name || 'Active Project'} color="text-[#74E61F]"/>
+                        <ProjectStat label="Project Name" value={projectData.name || 'Active Project'} color="text-[#74E61F]" />
                         <ProjectStat label="Status" value={projectData.status || 'Operational'} color="text-[#74E61F]" />
-                        <ProjectStat label="Funding Goal" value={formatRupee(target)} color="text-[#74E61F]"/>
-                        <ProjectStat label="Funding Collected" value={formatRupee(collected)} color="text-[#74E61F]"/>
+                        <ProjectStat label="Funding Goal" value={formatRupee(target)} color="text-[#74E61F]" />
+                        <ProjectStat label="Funding Collected" value={formatRupee(collected)} color="text-[#74E61F]" />
                       </div>
                     </div>
                     <div className={`p-5 ${darkMode ? 'bg-[#F7FBF9]' : 'bg-slate-50'} rounded-2xl border ${cardBorder} space-y-3`}>
@@ -1107,13 +1128,17 @@ export default function UserDashboard() {
                     <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-300 rounded-xl text-xs font-semibold">{passwordStatus.error}</div>
                   )}
                   <form onSubmit={handlePasswordChange} className="space-y-4">
+                    <InputField label="Current Password" type="password" value={passwordForm.currentPassword}
+                      onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} inputBg={inputBg} darkMode={darkMode} />
                     <InputField label="New Password" type="password" value={passwordForm.newPassword}
                       onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} inputBg={inputBg} darkMode={darkMode} />
-                    <InputField label="Confirm Password" type="password" value={passwordForm.confirmPassword}
+                    <InputField label="Confirm New Password" type="password" value={passwordForm.confirmPassword}
                       onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} inputBg={inputBg} darkMode={darkMode} />
-                    <button type="submit"
-                      className="px-6 py-3 bg-[#74E61F] text-[#042A1d] font-sora font-bold uppercase tracking-wider rounded-xl hover:bg-white hover:text-black transition-all cursor-pointer text-xs">
-                      Update Password
+                    <button type="submit" disabled={passwordSubmitting}
+                      className="px-6 py-3 bg-[#74E61F] text-[#042A1d] font-sora font-bold uppercase tracking-wider rounded-xl hover:bg-white hover:text-black transition-all cursor-pointer text-xs flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
+                      {passwordSubmitting ? (
+                        <><div className="w-4 h-4 border-2 border-[#042A1d] border-t-transparent rounded-full animate-spin" /> Updating...</>
+                      ) : 'Update Password'}
                     </button>
                   </form>
                 </div>

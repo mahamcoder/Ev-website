@@ -6,7 +6,9 @@ import {
   signOut,
   onAuthStateChanged,
   updatePassword,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  EmailAuthProvider,
+  reauthenticateWithCredential
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 
@@ -165,11 +167,17 @@ export function AuthProvider({ children }) {
     }, { merge: true });
   }
 
-  async function changePassword(newPassword) {
+  async function changePassword(newPassword, currentPassword) {
     if (impersonatedUid) {
       throw new Error('Password change is disabled during user impersonation.');
     }
     if (!currentUser) throw new Error('No authenticated user');
+    // Firebase requires a recent sign-in before updatePassword.
+    // Reauthenticate with the user's current password first.
+    if (currentPassword) {
+      const credential = EmailAuthProvider.credential(currentUser.email, currentPassword);
+      await reauthenticateWithCredential(currentUser, credential);
+    }
     await updatePassword(currentUser, newPassword);
   }
 

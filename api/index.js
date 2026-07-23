@@ -3,8 +3,22 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, doc, setDoc, getDoc, collection, query, limit, getDocs, writeBatch, serverTimestamp, increment } from 'firebase/firestore';
 
 dotenv.config();
+
+const firebaseConfig = {
+  apiKey: process.env.VITE_FIREBASE_API_KEY,
+  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.VITE_FIREBASE_APP_ID
+};
+
+const appFirebase = initializeApp(firebaseConfig);
+const db = getFirestore(appFirebase);
 
 const app = express();
 app.use(cors());
@@ -34,10 +48,10 @@ app.post('/api/create-order', async (req, res) => {
   }
 });
 
-// Endpoint to verify payment signature
-app.post('/api/verify-payment', (req, res) => {
+// Endpoint to verify payment signature and atomically update Firestore
+app.post('/api/verify-payment', async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId, plan, amount, projectId } = req.body;
 
     // The signature verification logic
     const body = razorpay_order_id + '|' + razorpay_payment_id;
@@ -47,11 +61,76 @@ app.post('/api/verify-payment', (req, res) => {
       .digest('hex');
 
     if (expectedSignature === razorpay_signature) {
-      // Signature is valid
       console.log('✅ Transaction Successful! Signature matched for Payment ID:', razorpay_payment_id);
+
+      try {
+        let activeProjectRef;
+        let activeProjectId = projectId || '';
+        
+        if (activeProjectId) {
+          activeProjectRef = doc(db, 'projects', activeProjectId);
+        } else {
+          // Fallback: use the first project if no active project is passed
+          const projectsRef = collection(db, 'projects');
+          const allProjQ = query(projectsRef, limit(1));
+          const allProjectsSnapshot = await getDocs(allProjQ);
+          if (!allProjectsSnapshot.empty) {
+            const docSnap = allProjectsSnapshot.docs[0];
+            activeProjectId = docSnap.id;
+            activeProjectRef = doc(db, 'projects', activeProjectId);
+          } else {
+            console.warn('⚠️ No projects found at all. Cannot associate payment.');
+          }
+        }
+
+        const batch = writeBatch(db);
+
+        // 1. Write to payments collection
+        const paymentRef = doc(collection(db, 'payments'));
+        batch.set(paymentRef, {
+          userId: userId || 'guest',
+          plan: plan || 'Unknown',
+          amount: amount || 0,
+          transactionId: razorpay_payment_id,
+          orderId: razorpay_order_id,
+          status: 'Success',
+          projectId: activeProjectId,
+          createdAt: serverTimestamp()
+        });
+
+        // 2. Update users/{userId}
+        if (userId && !userId.startsWith('guest')) {
+          const userRef = doc(db, 'users', userId);
+
+          const userSnap = await getDoc(userRef);
+          if (!userSnap.exists()) {
+            console.warn(`⚠️ [MISSING USER DOC] UID: ${userId} has no Firestore document during payment verification. Payment ID: ${razorpay_payment_id}, Plan: ${plan}. Creating via set+merge.`);
+          }
+
+          batch.set(userRef, {
+            membershipStatus: 'Active',
+            paymentStatus: 'Paid',
+            membershipType: plan,
+            projectId: activeProjectId
+          }, { merge: true });
+        }
+
+        // 3. Increment the ACTIVE project's collected amount and total members
+        if (activeProjectRef) {
+          batch.set(activeProjectRef, {
+            collectedAmount: increment(amount || 0),
+            totalMembers: increment(1)
+          }, { merge: true });
+        }
+
+        await batch.commit();
+        console.log('✅ Firestore updated successfully for payment:', razorpay_payment_id);
+      } catch (dbError) {
+        console.error('❌ Error updating Firestore post-payment:', dbError);
+      }
+
       res.status(200).json({ success: true, message: 'Payment verified successfully' });
     } else {
-      // Signature is invalid
       console.log('❌ Transaction Failed! Invalid signature for Payment ID:', razorpay_payment_id);
       res.status(400).json({ success: false, message: 'Invalid signature' });
     }
