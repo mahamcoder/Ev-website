@@ -3,22 +3,36 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
-import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, getDoc, collection, query, limit, getDocs, writeBatch, serverTimestamp, increment } from 'firebase/firestore';
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 dotenv.config();
 
-const firebaseConfig = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY,
-  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.VITE_FIREBASE_APP_ID
-};
+// --- Firebase Admin SDK init (bypasses Firestore Security Rules) ---
+let db;
+try {
+  const jsonStr = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!jsonStr) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON env variable is missing');
+  }
 
-const appFirebase = initializeApp(firebaseConfig);
-const db = getFirestore(appFirebase);
+  const serviceAccount = JSON.parse(jsonStr);
+  // Vercel env vars sometimes store the private key with literal \n instead of real newlines
+  if (serviceAccount.private_key) {
+    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+  }
+
+  if (!getApps().length) {
+    initializeApp({
+      credential: cert(serviceAccount)
+    });
+  }
+
+  db = getFirestore();
+  console.log('✅ Firebase Admin initialized successfully (project:', serviceAccount.project_id, ')');
+} catch (err) {
+  console.error('❌ Failed to initialize Firebase Admin SDK:', err.message);
+}
 
 const app = express();
 app.use(cors());
@@ -64,29 +78,31 @@ app.post('/api/verify-payment', async (req, res) => {
       console.log('✅ Transaction Successful! Signature matched for Payment ID:', razorpay_payment_id);
 
       try {
+        if (!db) {
+          throw new Error('Firestore Admin DB was not initialized (check FIREBASE_SERVICE_ACCOUNT_JSON)');
+        }
+
         let activeProjectRef;
         let activeProjectId = projectId || '';
-        
+
         if (activeProjectId) {
-          activeProjectRef = doc(db, 'projects', activeProjectId);
+          activeProjectRef = db.collection('projects').doc(activeProjectId);
         } else {
           // Fallback: use the first project if no active project is passed
-          const projectsRef = collection(db, 'projects');
-          const allProjQ = query(projectsRef, limit(1));
-          const allProjectsSnapshot = await getDocs(allProjQ);
+          const allProjectsSnapshot = await db.collection('projects').limit(1).get();
           if (!allProjectsSnapshot.empty) {
             const docSnap = allProjectsSnapshot.docs[0];
             activeProjectId = docSnap.id;
-            activeProjectRef = doc(db, 'projects', activeProjectId);
+            activeProjectRef = db.collection('projects').doc(activeProjectId);
           } else {
             console.warn('⚠️ No projects found at all. Cannot associate payment.');
           }
         }
 
-        const batch = writeBatch(db);
+        const batch = db.batch();
 
         // 1. Write to payments collection
-        const paymentRef = doc(collection(db, 'payments'));
+        const paymentRef = db.collection('payments').doc();
         batch.set(paymentRef, {
           userId: userId || 'guest',
           plan: plan || 'Unknown',
@@ -95,15 +111,15 @@ app.post('/api/verify-payment', async (req, res) => {
           orderId: razorpay_order_id,
           status: 'Success',
           projectId: activeProjectId,
-          createdAt: serverTimestamp()
+          createdAt: FieldValue.serverTimestamp()
         });
 
         // 2. Update users/{userId}
         if (userId && !userId.startsWith('guest')) {
-          const userRef = doc(db, 'users', userId);
+          const userRef = db.collection('users').doc(userId);
 
-          const userSnap = await getDoc(userRef);
-          if (!userSnap.exists()) {
+          const userSnap = await userRef.get();
+          if (!userSnap.exists) {
             console.warn(`⚠️ [MISSING USER DOC] UID: ${userId} has no Firestore document during payment verification. Payment ID: ${razorpay_payment_id}, Plan: ${plan}. Creating via set+merge.`);
           }
 
@@ -118,18 +134,24 @@ app.post('/api/verify-payment', async (req, res) => {
         // 3. Increment the ACTIVE project's collected amount and total members
         if (activeProjectRef) {
           batch.set(activeProjectRef, {
-            collectedAmount: increment(amount || 0),
-            totalMembers: increment(1)
+            collectedAmount: FieldValue.increment(amount || 0),
+            totalMembers: FieldValue.increment(1)
           }, { merge: true });
         }
 
         await batch.commit();
         console.log('✅ Firestore updated successfully for payment:', razorpay_payment_id);
-      } catch (dbError) {
-        console.error('❌ Error updating Firestore post-payment:', dbError);
-      }
 
-      res.status(200).json({ success: true, message: 'Payment verified successfully' });
+        res.status(200).json({ success: true, message: 'Payment verified successfully' });
+      } catch (dbError) {
+        // Surface the failure so the frontend shows the error instead of false success
+        console.error('❌ Error updating Firestore post-payment:', dbError);
+        res.status(500).json({
+          success: false,
+          message: 'Payment was verified with Razorpay, but saving to the database failed. Please contact support with this Payment ID: ' + razorpay_payment_id,
+          error: dbError.message
+        });
+      }
     } else {
       console.log('❌ Transaction Failed! Invalid signature for Payment ID:', razorpay_payment_id);
       res.status(400).json({ success: false, message: 'Invalid signature' });
